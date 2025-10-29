@@ -2,12 +2,14 @@ import { createDebugAPI, createEnhancedAPI } from "@/utils/api";
 import { saveToken, saveUserid } from "@/utils/auth";
 import { analyzeServerError, debugLoginPayloads } from "@/utils/debug";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -71,7 +73,7 @@ export default function Login() {
 
   const runNormalLogin = async () => {
     try {
-      console.log("🔄 Creating API instance for login...");
+      console.log("📄 Creating API instance for login...");
       const api = await createEnhancedAPI();
       
       // Try the most common patterns first
@@ -90,7 +92,7 @@ export default function Login() {
           const res = await api.post("/login", payload);
           
           console.log("✅ Success with payload:", JSON.stringify(payload));
-          console.log("📥 Response:", res.data);
+          console.log("🔥 Response:", res.data);
 
           if (res.data.status === "success") {
             await handleLoginSuccess(res.data);
@@ -215,65 +217,166 @@ export default function Login() {
     }, 300);
   };
 
+  // Social media link handlers
+  const openEmail = () => {
+    Linking.openURL('mailto:info@imcbs.com');
+  };
+
+  const openWebsite = () => {
+    Linking.openURL('https://imcbs.com/');
+  };
+
+  const openInstagram = () => {
+    Linking.openURL('https://www.instagram.com/imcbusinesssolution/');
+  };
+
+  const openFacebook = () => {
+    Linking.openURL('https://www.facebook.com/people/IMC-Business-Solution/100069040622427/'); // Add your Facebook URL here
+  };
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: '#F3F4F6' }}
     >
-      <StatusBar backgroundColor="#FB923C" />
+      <StatusBar backgroundColor="#7E57C2" barStyle="light-content" />
 
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <ScrollView
           contentContainerStyle={{ flexGrow: 1 }}
           keyboardShouldPersistTaps="handled"
-          className="bg-gray-100"
         >
-          <View className="flex-1 justify-center items-center px-5 pt-20">
-            {/* Logo & Title - Make logo pressable for debug mode */}
-            <View className="items-center mb-6">
-              <TouchableOpacity onPress={handleLogoPress}>
+          {/* Purple Header Wave Design with Gradient */}
+          <LinearGradient
+            colors={["#7E57C2", "#9C27B0", "#7E57C2"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{ 
+              height: 200, 
+              borderBottomLeftRadius: 40,
+              borderBottomRightRadius: 40,
+              paddingTop: 40,
+              alignItems: 'center',
+              justifyContent: 'center',
+              shadowColor: '#7E57C2',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.3,
+              shadowRadius: 8,
+              elevation: 8,
+            }}
+          >
+            <TouchableOpacity onPress={handleLogoPress}>
+              <View style={{
+                backgroundColor: 'white',
+                borderRadius: 35,
+                padding: 12,
+                marginBottom: 12,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.2,
+                shadowRadius: 4,
+                elevation: 5,
+              }}>
                 <Image
                   source={require("../../assets/images/icon.png")}
-                  style={{ width: 60, height: 60, marginBottom: 8 }}
+                  style={{ width: 50, height: 50 }}
                 />
-              </TouchableOpacity>
-              <Text className="text-lg font-semibold">MagicPDA</Text>
-              {debugMode && (
-                <Text className="text-orange-500 text-sm mt-1">DEBUG MODE</Text>
-              )}
-            </View>
-
-            {/* Login Box */}
-            <View className="w-full max-w-[360px] bg-white rounded-2xl p-6 shadow-lg">
-              <Text className="text-center text-2xl font-bold mb-6 text-blue-500">
-                Login to Your Account
-              </Text>
-
-              <View className="mb-4">
-                <Text className="text-gray-600 font-medium mb-1">
-                  {debugMode ? "Username/UserID/Email" : "Username"}
+              </View>
+            </TouchableOpacity>
+            <Text style={{ 
+              color: 'white', 
+              fontSize: 28, 
+              fontWeight: 'bold',
+              letterSpacing: 1,
+            }}>
+              TaskMST
+            </Text>
+            <Text style={{ 
+              color: 'rgba(255,255,255,0.9)', 
+              fontSize: 14,
+              marginTop: 6,
+            }}>
+              Welcome Back
+            </Text>
+            {debugMode && (
+              <View style={{
+                backgroundColor: 'rgba(255,255,255,0.2)',
+                paddingHorizontal: 12,
+                paddingVertical: 4,
+                borderRadius: 12,
+                marginTop: 8,
+              }}>
+                <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>
+                  🔧 DEBUG MODE
                 </Text>
-                <TextInput
-                  value={username}
-                  onChangeText={(text) => {
-                    setUsername(text);
-                    setUsernameError(false);
-                  }}
-                  placeholder={debugMode ? "Enter username, userid, or email" : "Enter your username"}
-                  className={`border rounded-xl px-4 py-4 text-base bg-white shadow-sm ${
-                    usernameError ? "border-red-400" : "border-yellow-300"
-                  }`}
-                />
-                {usernameError && (
-                  <Text className="text-red-500 text-sm mt-1">
-                    This field is required
+              </View>
+            )}
+          </LinearGradient>
+
+          <View className="flex-1 px-6 justify-center" style={{ marginTop: -40 }}>
+            {/* Login Card with Modern Shadow */}
+            <View style={{
+              backgroundColor: 'white',
+              borderRadius: 24,
+              padding: 24,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.1,
+              shadowRadius: 12,
+              elevation: 6,
+            }}>
+              <View className="mb-6">
+                <View className="flex-row items-center mb-2">
+                  <Ionicons name="person-circle-outline" size={20} color="#7E57C2" />
+                  <Text className="text-gray-700 font-semibold ml-2">
+                    {debugMode ? "Username/UserID/Email" : "Username"}
                   </Text>
+                </View>
+                <View style={{
+                  borderWidth: 2,
+                  borderColor: usernameError ? '#EF4444' : '#E9D5FF',
+                  borderRadius: 16,
+                  backgroundColor: '#FAFAFA',
+                }}>
+                  <TextInput
+                    value={username}
+                    onChangeText={(text) => {
+                      setUsername(text);
+                      setUsernameError(false);
+                    }}
+                    placeholder={debugMode ? "Enter username, userid, or email" : "Enter your username"}
+                    placeholderTextColor="#9CA3AF"
+                    style={{
+                      paddingHorizontal: 16,
+                      paddingVertical: 14,
+                      fontSize: 15,
+                      color: '#1F2937',
+                    }}
+                  />
+                </View>
+                {usernameError && (
+                  <View className="flex-row items-center mt-2">
+                    <Ionicons name="alert-circle" size={14} color="#EF4444" />
+                    <Text className="text-red-500 text-sm ml-1">
+                      This field is required
+                    </Text>
+                  </View>
                 )}
               </View>
 
               <View className="mb-6">
-                <Text className="text-gray-600 font-medium mb-1">Password</Text>
-                <View className="relative">
+                <View className="flex-row items-center mb-2">
+                  <Ionicons name="lock-closed-outline" size={20} color="#7E57C2" />
+                  <Text className="text-gray-700 font-semibold ml-2">Password</Text>
+                </View>
+                <View style={{
+                  borderWidth: 2,
+                  borderColor: passwordError ? '#EF4444' : '#E9D5FF',
+                  borderRadius: 16,
+                  backgroundColor: '#FAFAFA',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}>
                   <TextInput
                     value={password}
                     onChangeText={(text) => {
@@ -281,52 +384,208 @@ export default function Login() {
                       setPasswordError(false);
                     }}
                     placeholder="Enter your password"
+                    placeholderTextColor="#9CA3AF"
                     secureTextEntry={!showPassword}
-                    className={`border rounded-xl px-4 py-4 text-base bg-white shadow-sm ${
-                      passwordError ? "border-red-400" : "border-yellow-300"
-                    }`}
+                    style={{
+                      flex: 1,
+                      paddingHorizontal: 16,
+                      paddingVertical: 14,
+                      fontSize: 15,
+                      color: '#1F2937',
+                    }}
                   />
                   <TouchableOpacity
-                    className="absolute right-4 top-4"
                     onPress={() => setShowPassword((prev) => !prev)}
+                    style={{ paddingRight: 16 }}
                   >
                     <Ionicons
                       name={showPassword ? "eye-off" : "eye"}
                       size={22}
-                      color="#000"
+                      color="#7E57C2"
                     />
                   </TouchableOpacity>
                 </View>
                 {passwordError && (
-                  <Text className="text-red-500 text-sm mt-1">
-                    Password is required
-                  </Text>
+                  <View className="flex-row items-center mt-2">
+                    <Ionicons name="alert-circle" size={14} color="#EF4444" />
+                    <Text className="text-red-500 text-sm ml-1">
+                      Password is required
+                    </Text>
+                  </View>
                 )}
               </View>
 
               <Pressable
                 onPress={handleLogin}
-                className={`rounded-xl py-4 shadow-lg ${
-                  loading ? "bg-orange-300" : "bg-orange-500"
-                }`}
                 disabled={loading}
+                style={{
+                  backgroundColor: loading ? '#9575CD' : '#7E57C2',
+                  borderRadius: 16,
+                  paddingVertical: 16,
+                  shadowColor: '#7E57C2',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 8,
+                  elevation: 4,
+                }}
               >
-                <Text className="text-center text-white font-bold text-lg">
-                  {loading ? "Logging in..." : "Login"}
-                </Text>
+                <View className="flex-row justify-center items-center">
+                  {loading && (
+                    <View className="mr-2">
+                      <Ionicons name="sync" size={20} color="white" />
+                    </View>
+                  )}
+                  <Text className="text-white font-bold text-lg">
+                    {loading ? "Logging in..." : "Login"}
+                  </Text>
+                </View>
               </Pressable>
 
               {debugMode && (
-                <Text className="text-xs text-gray-500 text-center mt-4">
-                  Debug mode: Testing all field name combinations
-                </Text>
+                <View style={{
+                  backgroundColor: '#FEF3C7',
+                  borderRadius: 12,
+                  padding: 12,
+                  marginTop: 16,
+                  borderLeftWidth: 4,
+                  borderLeftColor: '#F59E0B',
+                }}>
+                  <Text className="text-xs text-gray-700 text-center">
+                    🔧 Debug mode: Testing all field name combinations
+                  </Text>
+                </View>
               )}
             </View>
 
-            {/* Footer */}
-            <View className="mt-10 mb-6">
-              <Text className="text-sm text-gray-400 text-center">
-                Powered by IMC Business Solutions
+            {/* Additional Info Card */}
+            <View style={{
+              backgroundColor: 'white',
+              borderRadius: 20,
+              padding: 16,
+              marginTop: 16,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.05,
+              shadowRadius: 8,
+              elevation: 3,
+            }}>
+              <View className="flex-row items-center justify-center">
+                <Ionicons name="shield-checkmark" size={16} color="#7E57C2" />
+                <Text className="text-gray-600 text-sm ml-2">
+                  Secure Login • privacy protected
+                </Text>
+              </View>
+            </View>
+
+            {/* Social Media Footer */}
+            <View style={{
+              backgroundColor: 'white',
+              borderRadius: 20,
+              padding: 20,
+              marginTop: 16,
+              marginBottom: 24,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.05,
+              shadowRadius: 8,
+              elevation: 3,
+            }}>
+              {/* Social Media Icons */}
+              <View style={{
+                flexDirection: 'row',
+                justifyContent: 'center',
+                alignItems: 'center',
+                marginBottom: 12,
+              }}>
+                <TouchableOpacity
+                  onPress={openEmail}
+                  style={{
+                    backgroundColor: '#7E57C2',
+                    width: 44,
+                    height: 44,
+                    borderRadius: 22,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginHorizontal: 8,
+                    shadowColor: '#7E57C2',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 4,
+                    elevation: 3,
+                  }}
+                >
+                  <Ionicons name="mail" size={22} color="white" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={openWebsite}
+                  style={{
+                    backgroundColor: '#288749ff',
+                    width: 44,
+                    height: 44,
+                    borderRadius: 22,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginHorizontal: 8,
+                    shadowColor: '#EA4335',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 4,
+                    elevation: 3,
+                  }}
+                >
+                  <Ionicons name="globe" size={22} color="white" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={openInstagram}
+                  style={{
+                    backgroundColor: '#E4405F',
+                    width: 44,
+                    height: 44,
+                    borderRadius: 22,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginHorizontal: 8,
+                    shadowColor: '#E4405F',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 4,
+                    elevation: 3,
+                  }}
+                >
+                  <Ionicons name="logo-instagram" size={22} color="white" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={openFacebook}
+                  style={{
+                    backgroundColor: '#1877F2',
+                    width: 44,
+                    height: 44,
+                    borderRadius: 22,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginHorizontal: 8,
+                    shadowColor: '#1877F2',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 4,
+                    elevation: 3,
+                  }}
+                >
+                  <Ionicons name="logo-facebook" size={22} color="white" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Copyright Text */}
+              <Text style={{
+                textAlign: 'center',
+                color: '#6B7280',
+                fontSize: 12,
+                marginTop: 4,
+              }}>
+                © 2025 All rights reserved. IMCB Solutions LLP
               </Text>
             </View>
           </View>

@@ -50,91 +50,94 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <StatusBar backgroundColor="#7E57C2" barStyle="light-content" />
       
-      {/* Elegant Curved Header */}
-      <View style={styles.header}>
-        {/* Sophisticated Background Design */}
-        <View style={styles.headerDesign}>
-          <View style={styles.floatingOrb1}></View>
-          <View style={styles.floatingOrb2}></View>
-          <View style={styles.elegantWave}></View>
-        </View>
-        
-        <View style={styles.headerCurve}></View>
-        
-        {/* Header Content */}
-        <View style={styles.headerContent}>
-          <View style={styles.brandSection}>
-            <View style={styles.logoContainer}>
-              <LinearGradient
-                colors={['#FFFFFF', '#E8E6FF']}
-                style={styles.logoGradient}
-              >
-                <Ionicons name="cube" size={20} color="#7E57C2" />
-              </LinearGradient>
-            </View>
-            <View style={styles.brandText}>
-              <Text style={styles.appName}>task_mst</Text>
-              <Text style={styles.appTagline}>Mobile Stock Management</Text>
-            </View>
+      {/* Complete Header Section with Gradient */}
+      <LinearGradient
+        colors={["#7E57C2", "#9C27B0", "#7E57C2"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.headerGradient}
+      >
+        <View style={styles.header}>
+          {/* Sophisticated Background Design */}
+          <View style={styles.headerDesign}>
+            <View style={styles.floatingOrb1}></View>
+            <View style={styles.floatingOrb2}></View>
+            <View style={styles.elegantWave}></View>
           </View>
           
-          <TouchableOpacity
-            onPress={handleLogout}
-            style={styles.logoutButton}
-          >
-            <Ionicons name="exit-outline" size={20} color="white" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Curved User Welcome Card */}
-        <View style={styles.curvedUserCard}>
-          <View style={styles.userInfo}>
-            <View style={styles.avatarContainer}>
-              <LinearGradient
-                colors={['#9C77D9', '#7E57C2']}
-                style={styles.avatarGradient}
-              >
-                <Ionicons name="person" size={20} color="white" />
-              </LinearGradient>
+          {/* Header Content */}
+          <View style={styles.headerContent}>
+            <View style={styles.brandSection}>
+              <View style={styles.logoContainer}>
+                <LinearGradient
+                  colors={['#FFFFFF', '#E8E6FF']}
+                  style={styles.logoGradient}
+                >
+                  <Ionicons name="cube" size={20} color="#7E57C2" />
+                </LinearGradient>
+              </View>
+              <View style={styles.brandText}>
+                <Text style={styles.appName}>TaskMST</Text>
+                <Text style={styles.appTagline}>Mobile Stock Management</Text>
+              </View>
             </View>
-            <View style={styles.welcomeText}>
-              <Text style={styles.greetingText}>Welcome back</Text>
-              <Text style={styles.usernameText}>{username || "User"}</Text>
+            
+            <TouchableOpacity
+              onPress={handleLogout}
+              style={styles.logoutButton}
+            >
+              <Ionicons name="exit-outline" size={20} color="white" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Curved User Welcome Card */}
+          <View style={styles.curvedUserCard}>
+            <View style={styles.userInfo}>
+              <View style={styles.avatarContainer}>
+                <LinearGradient
+                  colors={['#330977ff', '#b420b6ff']}
+                  style={styles.avatarGradient}
+                >
+                  <Ionicons name="person" size={20} color="white" />
+                </LinearGradient>
+              </View>
+              <View style={styles.welcomeText}>
+                <Text style={styles.greetingText}>Welcome back</Text>
+                <Text style={styles.usernameText}>{username || "User"}</Text>
+              </View>
             </View>
           </View>
-          <View style={styles.statusIndicator}>
-            <View style={styles.activeDot}></View>
-            <Text style={styles.statusText}>Online</Text>
-          </View>
         </View>
-      </View>
+      </LinearGradient>
 
-      <ScrollView 
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {/* White Container with Curved Top */}
-        <View style={styles.whiteContainer}>
-          {/* Horizontal Flat Cards with Violet Theme */}
+      {/* White Container with Curved Top */}
+      <View style={styles.whiteContainer}>
+        <ScrollView 
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          {/* Horizontal Flat Cards with Light Purple Theme */}
           <View style={styles.horizontalCardsContainer}>
+          
             <TouchableOpacity
               style={styles.flatCard}
               onPress={() => router.push("/(main)/orders")}
             >
               <LinearGradient
-                colors={['#9C77D9', '#7E57C2']}
+                colors={['#f0c5f7ff', '#d9c4f8ff']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
                 style={styles.flatCardGradient}
               >
                 <View style={styles.flatCardContent}>
                   <View style={styles.flatCardIcon}>
-                    <Ionicons name="document-text-outline" size={24} color="white" />
+                    <Ionicons name="document-text-outline" size={24} color="#ffffffff" />
                   </View>
                   <View style={styles.flatCardText}>
                     <Text style={styles.flatCardTitle}>Orders</Text>
                     <Text style={styles.flatCardDescription}>Manage & process orders</Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.8)" />
+                  <Ionicons name="chevron-forward" size={16} color="#7E57C2" />
                 </View>
               </LinearGradient>
             </TouchableOpacity>
@@ -144,18 +147,20 @@ export default function HomeScreen() {
               onPress={() => router.push("/(main)/download")}
             >
               <LinearGradient
-                colors={['#9C77D9', '#7E57C2']}
+                colors={['#f0c5f7ff', '#d9c4f8ff']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
                 style={styles.flatCardGradient}
               >
                 <View style={styles.flatCardContent}>
                   <View style={styles.flatCardIcon}>
-                    <Ionicons name="cloud-download-outline" size={24} color="white" />
+                    <Ionicons name="cloud-download-outline" size={24} color="#faf9fbff" />
                   </View>
                   <View style={styles.flatCardText}>
                     <Text style={styles.flatCardTitle}>Download</Text>
                     <Text style={styles.flatCardDescription}>Sync inventory data</Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.8)" />
+                  <Ionicons name="chevron-forward" size={16} color="#7E57C2" />
                 </View>
               </LinearGradient>
             </TouchableOpacity>
@@ -165,18 +170,20 @@ export default function HomeScreen() {
               onPress={() => router.push("/(main)/tracker")}
             >
               <LinearGradient
-                colors={['#9C77D9', '#7E57C2']}
+                colors={['#f0c5f7ff', '#d9c4f8ff']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
                 style={styles.flatCardGradient}
               >
                 <View style={styles.flatCardContent}>
                   <View style={styles.flatCardIcon}>
-                    <Ionicons name="analytics-outline" size={24} color="white" />
+                    <Ionicons name="analytics-outline" size={24} color="#f7f6f9ff" />
                   </View>
                   <View style={styles.flatCardText}>
                     <Text style={styles.flatCardTitle}>Tracker</Text>
                     <Text style={styles.flatCardDescription}>Monitor progress</Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.8)" />
+                  <Ionicons name="chevron-forward" size={16} color="#7E57C2" />
                 </View>
               </LinearGradient>
             </TouchableOpacity>
@@ -186,30 +193,36 @@ export default function HomeScreen() {
               onPress={() => router.push("/(main)/settings")}
             >
               <LinearGradient
-                colors={['#9C77D9', '#7E57C2']}
+                colors={['#f0c5f7ff', '#d9c4f8ff']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
                 style={styles.flatCardGradient}
               >
                 <View style={styles.flatCardContent}>
                   <View style={styles.flatCardIcon}>
-                    <Ionicons name="settings-outline" size={24} color="white" />
+                    <Ionicons name="settings-outline" size={24} color="#f9f9faff" />
                   </View>
                   <View style={styles.flatCardText}>
                     <Text style={styles.flatCardTitle}>Settings</Text>
                     <Text style={styles.flatCardDescription}>App configuration</Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.8)" />
+                  <Ionicons name="chevron-forward" size={16} color="#7E57C2" />
                 </View>
               </LinearGradient>
             </TouchableOpacity>
-          </View>
-        </View>
 
-        {/* Footer */}
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>Powered by IMC Business Solutions</Text>
-          <Text style={styles.footerVersion}>v2.1.0</Text>
-        </View>
-      </ScrollView>
+          </View>
+          
+          <View style={styles.footer}>
+            <View style={styles.footerDivider} />
+            <View style={styles.footerContent}>
+              <Ionicons name="shield-checkmark" size={16} color="#9E9E9E" />
+              <Text style={styles.footerText}>IMCB Solutions LLP</Text>
+            </View>
+            <Text style={styles.footerSubtext}>Secure · Reliable · Enterprise-Grade</Text>
+          </View>
+        </ScrollView>
+      </View>
     </View>
   );
 }
@@ -217,15 +230,17 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FAF9FF",
+    backgroundColor: "#faf4fffa",
+  },
+  
+  headerGradient: {
+    paddingTop: Platform.OS === 'android' ? 60 : 50,
+    paddingBottom: 70,
   },
   
   header: {
-    backgroundColor: "#7E57C2",
-    paddingTop: Platform.OS === 'android' ? 60 : 50,
-    paddingBottom: 30,
     position: 'relative',
-    overflow: 'hidden',
+    overflow: 'visible',
   },
   
   headerDesign: {
@@ -242,7 +257,7 @@ const styles = StyleSheet.create({
     height: 100,
     borderRadius: 50,
     backgroundColor: 'rgba(255,255,255,0.08)',
-    top: 20,
+    top: -40,
     right: -20,
   },
   
@@ -252,7 +267,7 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 30,
     backgroundColor: 'rgba(255,255,255,0.12)',
-    top: 80,
+    top: 20,
     left: -15,
   },
   
@@ -263,20 +278,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderTopLeftRadius: 90,
     borderTopRightRadius: 90,
-    bottom: 10,
+    bottom: -30,
     right: -40,
     transform: [{ rotate: '12deg' }],
-  },
-  
-  headerCurve: {
-    position: 'absolute',
-    bottom: -25,
-    left: 0,
-    right: 0,
-    height: 50,
-    backgroundColor: "#7E57C2",
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
   },
   
   headerContent: {
@@ -316,15 +320,15 @@ const styles = StyleSheet.create({
   },
   
   appName: {
-    fontSize: 24,
+    fontSize: 25,
     fontWeight: "700",
     color: "white",
-    letterSpacing: -0.5,
+    letterSpacing: 2,
   },
   
   appTagline: {
     fontSize: 12,
-    color: "rgba(255,255,255,0.8)",
+    color: "rgba(255, 255, 255, 0.8)",
     fontWeight: "400",
     marginTop: 2,
   },
@@ -338,19 +342,14 @@ const styles = StyleSheet.create({
   },
   
   curvedUserCard: {
-    // backgroundColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(246, 59, 12, 0.1)",
+    backgroundColor: "rgba(213, 206, 215, 0.51)",
     marginHorizontal: 25,
     borderRadius: 20,
     padding: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-    borderBottomLeftRadius: 40,
-    borderBottomRightRadius: 40,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    marginTop: 10,
-
+    borderColor: 'rgba(255, 255, 255, 0.59)',
+    zIndex: 1,
+    height: 80,
   },
   
   userInfo: {
@@ -381,7 +380,7 @@ const styles = StyleSheet.create({
   },
   
   greetingText: {
-    fontSize: 13,
+    fontSize: 18,
     fontWeight: "500",
     color: "rgba(255,255,255,0.9)",
     marginBottom: 2,
@@ -393,64 +392,40 @@ const styles = StyleSheet.create({
     color: "white",
   },
   
-  statusIndicator: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  
-  activeDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#4ADE80",
-    marginRight: 6,
-  },
-  
-  statusText: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.8)",
-    fontWeight: "500",
-  },
-  
-  scrollView: {
-    flex: 1,
-    marginTop: -25,
-  },
-  
-  scrollContent: {
-    paddingBottom: 30,
-  },
-  
   whiteContainer: {
-    backgroundColor: "white",
+    flex: 1,
+    backgroundColor: "#f9f2fff7",
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
-    marginTop: 0,
+    marginTop: -30,
     marginHorizontal: 0,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.05,
     shadowRadius: 15,
     elevation: 8,
-    minHeight: 400,
+  },
+  
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 30,
   },
   
   horizontalCardsContainer: {
     paddingHorizontal: 20,
     paddingVertical: 25,
-    marginTop: 70,
+    marginTop: 20,
   },
   
   flatCard: {
     borderRadius: 16,
     marginBottom: 15,
-    shadowColor: "#7E57C2",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowColor: "#9889b3f1",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 5,
     overflow: 'hidden',
-    paddingTop: 0,
   },
   
   flatCardGradient: {
@@ -469,7 +444,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#801b90ff',
     marginRight: 16,
   },
   
@@ -479,33 +454,48 @@ const styles = StyleSheet.create({
   
   flatCardTitle: {
     fontSize: 16,
-    fontWeight: "600",
-    color: "white",
+    fontWeight: "700",
+    color: "#1A1A1A",
     marginBottom: 4,
   },
   
   flatCardDescription: {
     fontSize: 13,
-    color: "rgba(255,255,255,0.9)",
+    color: "#616161",
+    fontWeight: "500",
   },
   
   footer: {
     alignItems: "center",
-    paddingHorizontal: 20,
-    marginTop: 30,
+    paddingTop: 32,
+    paddingBottom: 20,
+    marginTop: 40,
+  },
+  
+  footerDivider: {
+    width: 80,
+    height: 4,
+    backgroundColor: "#E0E0E0",
+    borderRadius: 2,
     marginBottom: 20,
   },
   
-  footerText: {
-    fontSize: 12,
-    color: "#9CA3AF",
-    fontWeight: "400",
-    marginBottom: 4,
+  footerContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
   },
   
-  footerVersion: {
-    fontSize: 10,
-    color: "#D1D5DB",
-    fontWeight: "400",
+  footerText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#7E57C2",
+  },
+  
+  footerSubtext: {
+    fontSize: 11,
+    color: "#9E9E9E",
+    fontWeight: "500",
   },
 });

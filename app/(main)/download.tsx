@@ -302,7 +302,7 @@ export default function DownloadPage() {
                   className="h-full bg-blue-500 rounded-full"
                   style={{ 
                     width: `${downloadProgress}%`,
-                    backgroundColor: '#3B82F6',
+                    backgroundColor: '#801b90ff',
                     borderRadius: 6
                   }}
                 />
@@ -340,8 +340,11 @@ export default function DownloadPage() {
         ) : (
           <>
             <View className="flex-row justify-center items-center gap-2 mb-6">
-              <Ionicons name="cloud-download-outline" size={32} color="#3B82F6" />
-              <Text className="text-3xl font-bold text-blue-500 text-center">Download Data</Text>
+              <Ionicons name="cloud-download-outline" size={32} color="#801b90ff" />
+              <Text className="text-3xl font-bold text-[#801b90] text-center">
+                Download Data
+              </Text>
+
             </View>
             
             <View className="gap-y-4 mb-8">
@@ -362,7 +365,7 @@ export default function DownloadPage() {
               onPress={handleDownload}
               disabled={loading}
               className={`rounded-2xl py-6 shadow-lg mb-4 ${
-                loading ? "bg-blue-300" : "bg-blue-500"
+                loading ? "bg-[#801b90]/60" : "bg-[#801b90]"
               }`}
             >
               <Text className="font-bold text-xl text-center text-white">

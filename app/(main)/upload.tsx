@@ -173,7 +173,7 @@ export default function Upload() {
         className="absolute top-12 left-4 bg-white p-2 rounded-full shadow-md z-10"
         onPress={() => router.back()}
       >
-        <Ionicons name="arrow-back" size={24} color="#3B82F6" />
+        <Ionicons name="arrow-back" size={24} color="#801b90ff" />
       </TouchableOpacity>
 
       <ScrollView 
@@ -250,29 +250,30 @@ export default function Upload() {
           ) : (
             <>
               <View className="flex-row justify-center items-center gap-2 mb-6">
-                <Ionicons name="cloud-upload-outline" size={32} color="#3B82F6" />
-                <Text className="text-2xl font-bold text-blue-500 text-center">
+                <Ionicons name="cloud-upload-outline" size={32} color="#801b90ff" />
+                <Text className="text-2xl font-bold text-[#801b90ff] text-center">
                   Upload Pending Orders
                 </Text>
               </View>
               
-              <View className="bg-blue-50 p-4 rounded-lg mb-6">
-                <Text className="text-blue-800 font-semibold text-center mb-2">
+              <View className="bg-pink-100 p-4 rounded-lg mb-6">
+
+                <Text className="text-[#801b90ff] font-semibold text-center mb-2">
                   Upload Summary
                 </Text>
                 <View className="gap-y-2">
                   <View className="flex flex-row justify-between">
-                    <Text className="text-blue-700">Pending Orders:</Text>
+                    <Text className="text-[#801b90ff]">Pending Orders:</Text>
                     <Text className="font-semibold">{orders.length}</Text>
                   </View>
                   <View className="flex flex-row justify-between">
-                    <Text className="text-blue-700">Total Items:</Text>
+                    <Text className="text-[#801b90ff]">Total Items:</Text>
                     <Text className="font-semibold">{totalItems}</Text>
                   </View>
                   {stats.lastSynced && (
                     <View className="flex flex-row justify-between">
-                      <Text className="text-blue-700">Last Synced:</Text>
-                      <Text className="text-blue-600">
+                      <Text className="text-[#801b90ff]">Last Synced:</Text>
+                      <Text className="text-[#801b90ff]">
                         {new Date(stats.lastSynced).toLocaleString()}
                       </Text>
                     </View>

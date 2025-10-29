@@ -113,7 +113,6 @@ export const markOrdersAsSynced = async () => {
 
 // Save order to sync
 export const saveOrderToSync = async (order: {
-  supplier_code: string;
   userid: string;
   barcode: string;
   quantity: number;
@@ -123,13 +122,13 @@ export const saveOrderToSync = async (order: {
 }) => {
   const db = getDatabase();
   try {
-    // Check if order already exists for same date, barcode, user, and supplier
+    // Check if order already exists for same date, barcode, and user
     const existingOrder = await db.getFirstAsync(
       `SELECT id, quantity FROM orders_to_sync 
-       WHERE barcode = ? AND order_date = ? AND userid = ? AND supplier_code = ? 
+       WHERE barcode = ? AND order_date = ? AND userid = ? 
        AND sync_status = 'pending'`,
-      [order.barcode, order.order_date, order.userid, order.supplier_code]
-    );
+      [order.barcode, order.order_date, order.userid]
+    ) as {id: number, quantity: number} | null;
 
     if (existingOrder) {
       // Update existing order with new quantity (accumulate)
@@ -151,9 +150,9 @@ export const saveOrderToSync = async (order: {
       // Insert new order
       await db.runAsync(
         `INSERT INTO orders_to_sync 
-         (supplier_code, userid, barcode, quantity, rate, mrp, order_date) 
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [order.supplier_code, order.userid, order.barcode, order.quantity, order.rate, order.mrp, order.order_date]
+         (userid, barcode, quantity, rate, mrp, order_date) 
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [order.userid, order.barcode, order.quantity, order.rate, order.mrp, order.order_date]
       );
       
       console.log("✅ New order saved for sync:", {
@@ -170,8 +169,8 @@ export const saveOrderToSync = async (order: {
       await db.runAsync(
         `UPDATE orders_to_sync 
          SET quantity = quantity + ?, rate = ?, mrp = ?, created_at = CURRENT_TIMESTAMP 
-         WHERE barcode = ? AND order_date = ? AND userid = ? AND supplier_code = ?`,
-        [order.quantity, order.rate, order.mrp, order.barcode, order.order_date, order.userid, order.supplier_code]
+         WHERE barcode = ? AND order_date = ? AND userid = ?`,
+        [order.quantity, order.rate, order.mrp, order.barcode, order.order_date, order.userid]
       );
       
       console.log("✅ Updated existing order after constraint violation");
@@ -206,15 +205,22 @@ export const cleanupDuplicateOrders = async () => {
     
     // Find and merge duplicate orders
     const duplicates = await db.getAllAsync(`
-      SELECT barcode, order_date, userid, supplier_code, 
+      SELECT barcode, order_date, userid, 
              COUNT(*) as duplicate_count,
              GROUP_CONCAT(id) as order_ids,
              SUM(quantity) as total_quantity
       FROM orders_to_sync 
       WHERE sync_status = 'pending'
-      GROUP BY barcode, order_date, userid, supplier_code
+      GROUP BY barcode, order_date, userid
       HAVING COUNT(*) > 1
-    `);
+    `) as Array<{
+      barcode: string;
+      order_date: string;
+      userid: string;
+      duplicate_count: number;
+      order_ids: string;
+      total_quantity: number;
+    }>;
 
     console.log(`Found ${duplicates.length} sets of duplicates to clean up`);
 

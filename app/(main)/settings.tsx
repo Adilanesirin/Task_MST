@@ -132,7 +132,7 @@ export default function Settings() {
         style={styles.backButton}
         onPress={() => router.back()}
       >
-        <Ionicons name="arrow-back" size={24} color="#3B82F6" />
+        <Ionicons name="arrow-back" size={24} color="#801b90ff" />
       </TouchableOpacity>
 
       <View style={styles.content}>
@@ -156,7 +156,7 @@ export default function Settings() {
               <Ionicons 
                 name="hardware-chip-outline" 
                 size={24} 
-                color={mode === "hardware" ? "#3B82F6" : "#6B7280"} 
+                color={mode === "hardware" ? "#801b90ff" : "#6B7280"} 
               />
               <View style={styles.optionText}>
                 <Text style={[
@@ -170,7 +170,7 @@ export default function Settings() {
                 </Text>
               </View>
               {mode === "hardware" && (
-                <Ionicons name="checkmark-circle" size={24} color="#3B82F6" />
+                <Ionicons name="checkmark-circle" size={24} color="#801b90ff" />
               )}
             </View>
           </TouchableOpacity>
@@ -186,7 +186,7 @@ export default function Settings() {
               <Ionicons 
                 name="camera-outline" 
                 size={24} 
-                color={mode === "camera" ? "#3B82F6" : "#6B7280"} 
+                color={mode === "camera" ? "#801b90ff" : "#6B7280"} 
               />
               <View style={styles.optionText}>
                 <Text style={[
@@ -200,7 +200,7 @@ export default function Settings() {
                 </Text>
               </View>
               {mode === "camera" && (
-                <Ionicons name="checkmark-circle" size={24} color="#3B82F6" />
+                <Ionicons name="checkmark-circle" size={24} color="#801b90ff" />
               )}
             </View>
           </TouchableOpacity>
@@ -217,7 +217,7 @@ export default function Settings() {
               pingStatus === "failed" && styles.statusIndicatorFailed
             ]}>
               {pinging ? (
-                <ActivityIndicator size="small" color="#3B82F6" />
+                <ActivityIndicator size="small" color="#801b90ff" />
               ) : (
                 <Ionicons 
                   name={pingStatus === "success" ? "checkmark-circle" : "close-circle"} 
@@ -245,12 +245,12 @@ export default function Settings() {
           >
             {pinging ? (
               <>
-                <ActivityIndicator size="small" color="#3B82F6" />
+                <ActivityIndicator size="small" color="#801b90ff" />
                 <Text style={styles.pingButtonText}>Pinging Server...</Text>
               </>
             ) : (
               <>
-                <Ionicons name="wifi-outline" size={24} color="#3B82F6" />
+                <Ionicons name="wifi-outline" size={24} color="#801b90ff" />
                 <Text style={styles.pingButtonText}>Ping Server</Text>
               </>
             )}
@@ -316,7 +316,7 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
     borderRadius: 16,
     padding: 24,
-    shadowColor: "#0e42ebff",
+    shadowColor: "#c018cdff",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.30,
     shadowRadius: 3,
@@ -341,8 +341,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   optionSelected: {
-    backgroundColor: "#EBF8FF",
-    borderColor: "#3B82F6",
+    backgroundColor: "#fdeaf6ff",
+    borderColor: "#801b90ff",
   },
   optionUnselected: {
     backgroundColor: "#F9FAFB",
@@ -361,7 +361,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   optionTitleSelected: {
-    color: "#1D4ED8",
+    color: "#801b90ff",
   },
   optionTitleUnselected: {
     color: "#111827",
@@ -410,8 +410,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   pingButtonEnabled: {
-    backgroundColor: "#EBF8FF",
-    borderColor: "#BFDBFE",
+    backgroundColor: "#ffebf1ff",
+    borderColor: "#c257d4ff",
   },
   pingButtonDisabled: {
     backgroundColor: "#F9FAFB",
@@ -420,7 +420,7 @@ const styles = StyleSheet.create({
   pingButtonText: {
     marginLeft: 8,
     fontWeight: "600",
-    color: "#1D4ED8",
+    color: "#801b90ff",
   },
   footer: {
     alignItems: "center",

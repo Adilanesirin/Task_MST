@@ -762,11 +762,11 @@ export default function StockTrackerScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={22} color="#007AFF" />
+          <Ionicons name="arrow-back" size={22} color="#801b90ff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>STOCK TRACKER</Text>
         <TouchableOpacity onPress={handleScanBarcode} style={styles.searchButton}>
-          <Ionicons name="barcode-outline" size={22} color="#007AFF" />
+          <Ionicons name="barcode-outline" size={22} color="#801b90ff" />
         </TouchableOpacity>
       </View>
 
@@ -1043,7 +1043,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#2E7D7A',
+    color: '#801b90ff',
     textAlign: 'center',
     flex: 1,
   },
@@ -1081,7 +1081,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 40,
     height: 40,
-    borderColor: '#3b82f6',
+    borderColor: '#801b90ff',
   },
   topLeft: {
     top: 0,
@@ -1147,7 +1147,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 0,
   },
   toggleButtonActive: {
-    backgroundColor: '#2E7D7A',
+    backgroundColor: '#801b90ff',
   },
   toggleIcon: {
     marginRight: 6,
@@ -1174,7 +1174,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 2,
-    borderColor: '#FFB74D',
+    borderColor: '#fb48b6ff',
     borderRadius: 4,
     backgroundColor: '#FFFFFF',
   },
@@ -1289,7 +1289,7 @@ const styles = StyleSheet.create({
   },
   itemDetailsButton: {
     flex: 1,
-    backgroundColor: '#2E7D7A',
+    backgroundColor: '#801b90ff',
     paddingVertical: 12,
     borderRadius: 4,
     alignItems: 'center',
@@ -1298,7 +1298,7 @@ const styles = StyleSheet.create({
   },
   clearButton: {
     flex: 1,
-    backgroundColor: '#FFB74D',
+    backgroundColor: '#fb48b6ff',
     paddingVertical: 12,
     borderRadius: 4,
     alignItems: 'center',
@@ -1327,7 +1327,7 @@ const styles = StyleSheet.create({
     borderColor: '#E0E0E0',
   },
   sectionHeader: {
-    backgroundColor: '#2E7D7A',
+    backgroundColor: '#801b90ff',
     paddingVertical: 12,
     paddingHorizontal: 16,
     flexDirection: 'row',

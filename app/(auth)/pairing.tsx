@@ -175,7 +175,7 @@ export default function Pairing() {
       style={{ flex: 1 }}
     >
       {/* Status Bar */}
-      <StatusBar backgroundColor="#FB923C" />
+      <StatusBar backgroundColor="#7E57C2" />
 
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <ScrollView
@@ -194,7 +194,7 @@ export default function Pairing() {
                 }}
               />
               <Text className="text-2xl font-bold mb-2 text-gray-800">
-                MagicPDA
+                Task_MST
               </Text>
               <Text className="text-gray-600 mb-8 text-center">
                 Connect to your server
@@ -202,13 +202,13 @@ export default function Pairing() {
 
               {/* Main Form Card */}
               <View className="w-full max-w-[360px] bg-white rounded-2xl p-6 shadow-lg">
-                <Text className="text-center text-blue-600 text-xl font-semibold mb-6">
+                <Text className="text-center text-[#7E57C2] text-xl font-semibold mb-6">
                   Server Connection
                 </Text>
 
                 {/* Connection Icon */}
                 <View className="items-center mb-6">
-                  <Ionicons name="server" size={48} color="#FB923C" />
+                  <Ionicons name="server" size={48} color="#7E57C2" />
                   <Text className="text-gray-600 text-center mt-3">
                     Enter your server details below
                   </Text>
@@ -232,7 +232,7 @@ export default function Pairing() {
                       autoCapitalize="none"
                       autoCorrect={false}
                       className={`border rounded-lg px-4 py-4 text-base bg-white ${
-                        ipError ? "border-red-400" : "border-orange-300"
+                        ipError ? "border-red-400" : "border-[#7E57C2]"
                       }`}
                     />
                     {ipError && (
@@ -262,7 +262,7 @@ export default function Pairing() {
                         autoCapitalize="none"
                         autoCorrect={false}
                         className={`border rounded-lg px-4 py-4 pr-12 text-base bg-white ${
-                          passwordError ? "border-red-400" : "border-orange-300"
+                          passwordError ? "border-red-400" : "border-[#7E57C2]"
                         }`}
                       />
                       <TouchableOpacity
@@ -291,7 +291,7 @@ export default function Pairing() {
                 <Pressable
                   onPress={handleConnect}
                   className={`rounded-lg py-4 mt-8 shadow-lg ${
-                    loading ? "bg-orange-300" : "bg-orange-500"
+                    loading ? "bg-[#9575CD]" : "bg-[#7E57C2]"
                   }`}
                   disabled={loading}
                 >
