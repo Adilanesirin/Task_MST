@@ -13,8 +13,10 @@ export async function logout() {
   await SecureStore.deleteItemAsync("token");
 }
 
+// 🎯 FIXED: Changed setItem to setItemAsync
 export async function saveUserid(user_id: string) {
-  await SecureStore.setItem("user_id", user_id);
+  await SecureStore.setItemAsync("user_id", user_id);
+  console.log("✅ Saved user_id to SecureStore:", user_id);
 }
 
 export async function getUserid() {

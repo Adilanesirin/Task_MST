@@ -21,6 +21,7 @@ export default function Entry() {
   const [modalVisible, setModalVisible] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [loading, setLoading] = useState(true);
+  const [quantity, setQuantity] = useState("0");
   const router = useRouter();
 
   useEffect(() => {
@@ -46,6 +47,18 @@ export default function Entry() {
     s?.name?.toLowerCase()?.includes(searchText.toLowerCase()) || false
   );
 
+  const incrementQuantity = () => {
+    const current = parseInt(quantity) || 0;
+    setQuantity((current + 1).toString());
+  };
+
+  const decrementQuantity = () => {
+    const current = parseInt(quantity) || 0;
+    if (current > 0) {
+      setQuantity((current - 1).toString());
+    }
+  };
+
   const handleProceed = () => {
     if (selectedSupplier) {
       router.push({
@@ -53,6 +66,7 @@ export default function Entry() {
         params: {
           supplier: selectedSupplier.name,
           supplier_code: selectedSupplier.code,
+          initialQuantity: quantity, // Pass the quantity
         },
       });
     }
@@ -128,6 +142,48 @@ export default function Entry() {
               </Text>
             </TouchableOpacity>
           )}
+
+          {/* Counted Quantity Section */}
+          <View className="mb-6">
+            <View className="flex-row items-center mb-2">
+              <Ionicons name="add-circle" size={20} color="#F59E0B" />
+              <Text className="text-base font-semibold ml-2 text-gray-700">
+                Counted Quantity
+              </Text>
+            </View>
+            
+            <View className="border border-gray-300 rounded-xl p-4 bg-gray-50">
+              <View className="flex-row items-center justify-center">
+                <TouchableOpacity
+                  onPress={decrementQuantity}
+                  className="bg-white w-12 h-12 rounded-lg items-center justify-center shadow-sm border border-gray-200"
+                >
+                  <Ionicons name="remove" size={24} color="#374151" />
+                </TouchableOpacity>
+                
+                <View className="mx-4 flex-1 max-w-[100px]">
+                  <TextInput
+                    value={quantity}
+                    onChangeText={setQuantity}
+                    keyboardType="numeric"
+                    className="text-center text-2xl font-bold text-orange-600 bg-white rounded-lg p-3 border border-gray-200"
+                    placeholder="0"
+                  />
+                </View>
+                
+                <TouchableOpacity
+                  onPress={incrementQuantity}
+                  className="bg-white w-12 h-12 rounded-lg items-center justify-center shadow-sm border border-gray-200"
+                >
+                  <Ionicons name="add" size={24} color="#374151" />
+                </TouchableOpacity>
+              </View>
+              
+              <Text className="text-xs text-gray-500 text-center mt-2">
+                Adjust the quantity using + / - buttons
+              </Text>
+            </View>
+          </View>
 
           <TouchableOpacity
             disabled={!selectedSupplier || loading}

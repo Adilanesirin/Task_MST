@@ -1,6 +1,7 @@
 import { runNetworkDiagnostics, testConnectionEnhanced } from "@/utils/api";
 import { savePairingIP } from "@/utils/pairing";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage"; // ADD THIS IMPORT
 import axios from "axios";
 import { useRouter } from "expo-router";
 import { useState } from "react";
@@ -124,8 +125,17 @@ export default function Pairing() {
       const pairingSuccess = await testPairing(cleanIP, password);
 
       if (pairingSuccess) {
-        // Save the IP for future use
+        // Save the IP for future use using the pairing utility
         await savePairingIP(cleanIP);
+        
+        console.log("✅ IP saved to SecureStore as 'paired_ip':", cleanIP);
+        
+        // Also save to AsyncStorage for backward compatibility
+        await AsyncStorage.setItem("pairing_ip", cleanIP);
+        await AsyncStorage.setItem("server_ip", cleanIP);
+        await AsyncStorage.setItem("base_url", `http://${cleanIP}:8000`);
+        
+        console.log("✅ IP also saved to AsyncStorage for compatibility");
 
         Toast.show({
           type: "success",
@@ -194,7 +204,7 @@ export default function Pairing() {
                 }}
               />
               <Text className="text-2xl font-bold mb-2 text-gray-800">
-                Task_MST
+                Task MST
               </Text>
               <Text className="text-gray-600 mb-8 text-center">
                 Connect to your server

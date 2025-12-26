@@ -97,7 +97,7 @@ export default function OrdersScreen() {
             <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
           </TouchableOpacity>
           <View style={styles.headerTextContainer}>
-            <Text style={styles.headerTitle}>Order Management</Text>
+            <Text style={styles.headerTitle}>Stock Tracker</Text>
             <Text style={styles.headerSubtitle}>Workflow Dashboard</Text>
           </View>
           <View style={styles.headerIconWrapper}>
@@ -219,7 +219,7 @@ export default function OrdersScreen() {
           <View style={styles.footerDivider} />
           <View style={styles.footerContent}>
             <Ionicons name="shield-checkmark" size={16} color="#9E9E9E" />
-            <Text style={styles.footerText}>IMC Business Solutions</Text>
+            <Text style={styles.footerText}>IMCB Solution LLP</Text>
           </View>
           <Text style={styles.footerSubtext}>Secure · Reliable · Enterprise-Grade</Text>
         </View>

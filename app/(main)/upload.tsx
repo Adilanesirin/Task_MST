@@ -1,9 +1,10 @@
-// app/upload.tsx
+// app/(main)/upload.tsx - COMPLETE CODE
 import {
   cleanupDuplicateOrders,
   getLocalDataStats,
   getPendingOrders,
-  markOrdersAsSynced
+  markOrdersAsSynced,
+  removeOrphanedStockCounts
 } from "@/utils/sync";
 import { uploadPendingOrders } from "@/utils/upload";
 import { Ionicons } from "@expo/vector-icons";
@@ -29,9 +30,10 @@ export default function Upload() {
 
   const loadData = async () => {
     try {
-      // Try to clean up duplicates, but continue even if it fails
+      // 🆕 Clean up duplicates AND orphaned entries before loading
       try {
         await cleanupDuplicateOrders();
+        await removeOrphanedStockCounts();
       } catch (cleanupError) {
         console.warn("⚠️ Cleanup failed, continuing without cleanup:", cleanupError);
       }
@@ -61,7 +63,7 @@ export default function Upload() {
     }, 5000);
     
     return () => clearInterval(interval);
-  }, []);
+  }, [loading, uploadSuccess]);
 
   const handleUpload = async () => {
     if (!orders || orders.length === 0) {
@@ -81,7 +83,7 @@ export default function Upload() {
           "Confirm Upload",
           `You are about to upload ${orders.length} orders. Continue?`,
           [
-            { text: "Cancel", style: "cancel" },
+            { text: "Cancel", style: "cancel", onPress: () => setLoading(false) },
             { text: "Upload", onPress: actuallyUpload }
           ]
         );
@@ -160,7 +162,6 @@ export default function Upload() {
   };
 
   const goToHome = () => {
-    // Navigate to index.tsx page
     router.push('/');
   };
 
@@ -257,7 +258,6 @@ export default function Upload() {
               </View>
               
               <View className="bg-pink-100 p-4 rounded-lg mb-6">
-
                 <Text className="text-[#801b90ff] font-semibold text-center mb-2">
                   Upload Summary
                 </Text>

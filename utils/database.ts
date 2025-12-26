@@ -3,6 +3,7 @@ import * as SQLite from "expo-sqlite";
 
 // Track database instances to prevent multiple connections
 let dbInstance: SQLite.SQLiteDatabase | null = null;
+let isInitializing = false;
 
 export const getDatabase = (): SQLite.SQLiteDatabase => {
   if (!dbInstance) {
@@ -20,92 +21,99 @@ export const closeDatabase = () => {
 };
 
 export const initDatabase = async () => {
+  // Prevent multiple simultaneous initializations
+  if (isInitializing) {
+    console.log("⚠️ Database initialization already in progress");
+    return;
+  }
+
+  isInitializing = true;
   const db = getDatabase();
+  
   try {
-    await db.withTransactionAsync(async () => {
-      // First, check if batch_supplier column exists in product_data
-      let batchSupplierExists = false;
-      try {
-        const checkResult = await db.getAllAsync(
-          "PRAGMA table_info(product_data)"
-        ) as any[];
-        
-        if (checkResult && Array.isArray(checkResult)) {
-          batchSupplierExists = checkResult.some(
-            (column: any) => column.name === "batch_supplier"
-          );
-        }
-      } catch (e) {
-        console.log("Table might not exist yet, will create it");
+    // Check if batch_supplier column exists in product_data
+    let batchSupplierExists = false;
+    try {
+      const checkResult = await db.getAllAsync(
+        "PRAGMA table_info(product_data)"
+      ) as any[];
+      
+      if (checkResult && Array.isArray(checkResult)) {
+        batchSupplierExists = checkResult.some(
+          (column: any) => column.name === "batch_supplier"
+        );
       }
+    } catch (e) {
+      console.log("📋 Table might not exist yet, will create it");
+    }
 
-      await db.execAsync(`
-        CREATE TABLE IF NOT EXISTS master_data (
-          code TEXT PRIMARY KEY NOT NULL,
-          name TEXT NOT NULL,
-          place TEXT
-        );
-      `);
-
-      await db.execAsync(`
-        CREATE TABLE IF NOT EXISTS product_data (
-          code TEXT NOT NULL,
-          name TEXT,
-          barcode TEXT PRIMARY KEY,
-          quantity NUMERIC,
-          salesprice NUMERIC,
-          bmrp NUMERIC,
-          cost NUMERIC,
-          batch_supplier TEXT
-        );
-      `);
-
-      // If table existed but was missing batch_supplier column, add it
-      if (!batchSupplierExists) {
-        try {
-          await db.execAsync(`
-            ALTER TABLE product_data ADD COLUMN batch_supplier TEXT;
-          `);
-          console.log("✅ Added missing batch_supplier column to product_data");
-        } catch (alterError) {
-          console.log("Column might already exist or table is new:", alterError);
-          // This is not a critical error, we can continue
-        }
-      }
-
-      await db.execAsync(`
-        CREATE TABLE IF NOT EXISTS orders_to_sync (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          supplier_code TEXT NOT NULL,
-          userid TEXT NOT NULL,
-          barcode TEXT NOT NULL,
-          quantity NUMERIC NOT NULL,
-          rate NUMERIC NOT NULL,
-          mrp NUMERIC NOT NULL,
-          order_date TEXT NOT NULL,
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-          sync_status TEXT DEFAULT 'pending',
-          FOREIGN KEY (barcode) REFERENCES product_data (barcode)
-        );
-      `);
-    });
-
+    // ✅ FIX: Remove withTransactionAsync wrapper
+    // execAsync handles transactions internally
     await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS master_data (
+        code TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        place TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS product_data (
+        code TEXT NOT NULL,
+        name TEXT,
+        barcode TEXT PRIMARY KEY,
+        quantity NUMERIC,
+        salesprice NUMERIC,
+        bmrp NUMERIC,
+        cost NUMERIC,
+        batch_supplier TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS orders_to_sync (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        supplier_code TEXT NOT NULL,
+        userid TEXT NOT NULL,
+        barcode TEXT NOT NULL,
+        quantity NUMERIC NOT NULL,
+        rate NUMERIC NOT NULL,
+        mrp NUMERIC NOT NULL,
+        order_date TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        sync_status TEXT DEFAULT 'pending',
+        FOREIGN KEY (barcode) REFERENCES product_data (barcode)
+      );
+
       CREATE TABLE IF NOT EXISTS sync_info (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         last_synced TEXT
       );
     `);
 
+    // Add batch_supplier column if it doesn't exist
+    if (!batchSupplierExists) {
+      try {
+        await db.execAsync(`
+          ALTER TABLE product_data ADD COLUMN batch_supplier TEXT;
+        `);
+        console.log("✅ Added missing batch_supplier column to product_data");
+      } catch (alterError: any) {
+        // Column might already exist
+        if (!alterError?.message?.includes('duplicate column')) {
+          console.warn("⚠️ Column add warning:", alterError);
+        }
+      }
+    }
+
     console.log("✅ Database initialized successfully.");
   } catch (err) {
     console.error("❌ Error initializing DB:", err);
-    // Don't throw the error if it's just a duplicate column issue
+    
+    // Don't throw error for duplicate column issues
     if (err instanceof Error && err.message.includes('duplicate column name')) {
-      console.warn("Duplicate column error, but continuing...");
-      return; // This is not a critical error
+      console.warn("⚠️ Duplicate column error, but continuing...");
+      return;
     }
     throw err;
+  } finally {
+    isInitializing = false;
   }
 };
 

@@ -2,6 +2,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -10,6 +12,7 @@ import {
   TouchableOpacity,
   View
 } from "react-native";
+import { getProductByBarcode } from "../../utils/database";
 
 export default function EditProduct() {
   const router = useRouter();
@@ -21,33 +24,97 @@ export default function EditProduct() {
   }>();
 
   const [product, setProduct] = useState<any>({});
-  const [editedCost, setEditedCost] = useState("");
-  const [editedQuantity, setEditedQuantity] = useState("");
-  const [editedSupplier, setEditedSupplier] = useState("");
+  const [editedName, setEditedName] = useState("");
+  const [editedBarcode, setEditedBarcode] = useState("");
+  const [editedMrp, setEditedMrp] = useState("");
+  const [editedQuantity, setEditedQuantity] = useState("0");
+  const [currentStock, setCurrentStock] = useState("0");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (itemData) {
-      const parsedItem = JSON.parse(itemData);
-      setProduct(parsedItem);
-      // Use e.cost if available, otherwise use cost
-      setEditedCost(parsedItem.eCost?.toString() || parsedItem.cost?.toString() || "0");
-      setEditedQuantity(parsedItem.quantity?.toString() || "1");
-      setEditedSupplier(parsedItem.batchSupplier || supplier || "");
-    }
+    const loadProductData = async () => {
+      if (itemData) {
+        try {
+          setLoading(true);
+          const parsedItem = JSON.parse(itemData);
+          console.log("📦 Parsed Item from params:", parsedItem);
+          
+          // Fetch full product details from database using barcode
+          if (parsedItem.barcode) {
+            const fullProduct = await getProductByBarcode(parsedItem.barcode);
+            console.log("🔍 Full product from database:", fullProduct);
+            
+            if (fullProduct) {
+              // Merge database data with scanned data
+              const productData = {
+                ...parsedItem,
+                ...fullProduct
+              };
+              
+              setProduct(productData);
+              setEditedName(productData.name || "");
+              setEditedBarcode(productData.barcode || "");
+              
+              // Get MRP from database (bmrp field)
+              const mrpValue = productData.bmrp || productData.mrp || productData.salesprice || "";
+              console.log("💰 MRP Value found:", mrpValue);
+              setEditedMrp(mrpValue ? mrpValue.toString() : "");
+              
+              // Get stock from scanned data (currentStock) or database (quantity)
+              const stockValue = parsedItem.currentStock ?? productData.quantity ?? 0;
+              setCurrentStock(stockValue.toString());
+              
+              // FIXED: Use countedQuantity from parsed item to preserve edited value
+              const quantityValue = parsedItem.countedQuantity ?? 0;
+              setEditedQuantity(quantityValue.toString());
+              
+              console.log("📊 Stock:", stockValue, "| Counted Quantity:", quantityValue, "| MRP:", mrpValue);
+            } else {
+              console.warn("⚠️ Product not found in database, using scanned data only");
+              // Product not in database, use only scanned data
+              setProduct(parsedItem);
+              setEditedName(parsedItem.name || "");
+              setEditedBarcode(parsedItem.barcode || "");
+              setEditedMrp("");
+              setCurrentStock(parsedItem.currentStock?.toString() || "0");
+              setEditedQuantity(parsedItem.countedQuantity?.toString() || "0");
+            }
+          } else {
+            // No barcode, use parsed item directly
+            setProduct(parsedItem);
+            setEditedName(parsedItem.name || "");
+            setEditedBarcode(parsedItem.barcode || "");
+            setEditedMrp("");
+            setCurrentStock(parsedItem.currentStock?.toString() || "0");
+            setEditedQuantity(parsedItem.countedQuantity?.toString() || "0");
+          }
+        } catch (error) {
+          console.error("❌ Error loading product:", error);
+          Alert.alert("Error", "Failed to load product details");
+        } finally {
+          setLoading(false);
+        }
+      }
+    };
+    
+    loadProductData();
   }, [itemData]);
 
   const handleSave = () => {
     const updatedItem = {
       ...product,
-      cost: product.cost, // Keep original cost unchanged
-      eCost: parseFloat(editedCost) || 0, // Save edited cost as eCost
-      quantity: parseInt(editedQuantity) || 1,
-      batchSupplier: editedSupplier,
+      // Keep original values (read-only fields)
+      name: product.name,
+      barcode: product.barcode,
+      bmrp: product.bmrp,
+      mrp: product.mrp,
+      // Update only the counted quantity
+      countedQuantity: parseInt(editedQuantity) || 0,
+      // Keep original stock unchanged
+      currentStock: parseInt(currentStock) || 0,
     };
 
-    // Navigate back with updated data using router.back() and passing params
     router.back();
-    // Use setTimeout to ensure navigation completes before setting params
     setTimeout(() => {
       router.setParams({
         updatedItem: JSON.stringify(updatedItem),
@@ -61,134 +128,177 @@ export default function EditProduct() {
   };
 
   const incrementQuantity = () => {
-    const currentQty = parseInt(editedQuantity) || 0;
-    setEditedQuantity((currentQty + 1).toString());
+    const current = parseInt(editedQuantity) || 0;
+    setEditedQuantity((current + 1).toString());
   };
 
   const decrementQuantity = () => {
-    const currentQty = parseInt(editedQuantity) || 0;
-    if (currentQty > 0) {
-      setEditedQuantity((currentQty - 1).toString());
+    const current = parseInt(editedQuantity) || 0;
+    if (current > 0) {
+      setEditedQuantity((current - 1).toString());
     }
   };
-
-  const currentCost = product.eCost || product.cost || 0;
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={{ flex: 1 }}
-      className="bg-gray-50"
+      className="bg-gradient-to-b from-blue-50 to-white"
     >
-      {/* Simple Header */}
-      <View className="bg-white pt-12 pb-4 px-4 border-b border-gray-200">
-        <View className="flex-row items-center">
-          <TouchableOpacity onPress={handleBack} className="mr-3">
-            <Ionicons name="arrow-back" size={24} color="#374151" />
+      {/* Modern Header */}
+      <View className="bg-gradient-to-r from-blue-600 to-blue-700 pt-12 pb-6 px-4 shadow-lg">
+        <View className="flex-row items-center justify-between mb-2">
+          <View className="flex-row items-center flex-1">
+            <TouchableOpacity 
+              onPress={handleBack} 
+              className="mr-3 bg-white/20 p-2 rounded-full"
+            >
+              <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+            <Text className="text-2xl font-bold text-white">Edit Product</Text>
+          </View>
+          <TouchableOpacity 
+            onPress={handleSave}
+            disabled={loading}
+            className="bg-white px-4 py-2 rounded-full"
+          >
+            <Text className="text-blue-600 font-semibold">
+              {loading ? "..." : "Save"}
+            </Text>
           </TouchableOpacity>
-          <Text className="text-xl font-bold text-gray-800">Edit Product</Text>
         </View>
+        <Text className="text-blue-100 text-sm ml-14">Update counted quantity only</Text>
       </View>
 
-      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-        <View className="p-4">
-          {/* Product Info with Blue Outline */}
-          <View className="bg-white rounded-lg p-4 mb-4 border-2 border-blue-500">
-            <Text className="text-base font-semibold text-gray-800 mb-1" numberOfLines={2}>
-              {product.name}
-            </Text>
-            <Text className="text-sm text-gray-500 mb-2">{product.barcode}</Text>
-            <Text className="text-sm text-gray-600">
-              MRP: <Text className="font-semibold text-green-600">₹{product.bmrp || 0}</Text>
-              {" • "}Stock: <Text className="font-semibold">{product.currentStock || 0}</Text>
-            </Text>
-            <Text className="text-sm text-gray-600 mt-1">
-              Original Cost: <Text className="font-semibold text-orange-600">₹{product.cost || 0}</Text>
-              {" • "}Edited Cost: <Text className="font-semibold text-red-600">₹{product.eCost || 0}</Text>
-            </Text>
-          </View>
-
-          {/* Edit Form - Reordered: Supplier, E.Qty, E.Cost */}
-          <View className="bg-white rounded-lg p-4 mb-4">
-            {/* Supplier (Non-editable) */}
-            <View className="mb-4">
-              <Text className="text-gray-700 font-medium mb-2">Supplier</Text>
-              <View className="border border-gray-300 rounded-lg px-3 py-2 bg-gray-100">
-                <Text className="text-gray-600">{editedSupplier || "No supplier selected"}</Text>
+      {loading ? (
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color="#3B82F6" />
+          <Text className="text-gray-600 mt-4">Loading product details...</Text>
+        </View>
+      ) : (
+        <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+          <View className="p-4">
+            {/* Product Name - READ ONLY */}
+            <View className="bg-gray-50 rounded-2xl p-4 mb-4 border border-gray-200">
+              <View className="flex-row items-center mb-2">
+                <Ionicons name="pricetag" size={20} color="#6B7280" />
+                <Text className="text-gray-600 font-semibold ml-2">Product Name</Text>
+                <View className="ml-auto bg-gray-200 px-2 py-1 rounded">
+                  <Text className="text-xs text-gray-600">Read-only</Text>
+                </View>
               </View>
-              <Text className="text-xs text-gray-500 mt-1">
-                Supplier information is read-only
+              <Text className="text-base text-gray-800 font-medium py-2">
+                {editedName || "N/A"}
               </Text>
             </View>
 
-            {/* Quantity */}
-            <View className="mb-4">
-              <Text className="text-gray-700 font-medium mb-2">E.Qty (Editable Quantity)</Text>
-              <View className="flex-row items-center">
+            {/* Barcode - READ ONLY */}
+            <View className="bg-gray-50 rounded-2xl p-4 mb-4 border border-gray-200">
+              <View className="flex-row items-center mb-2">
+                <Ionicons name="barcode" size={20} color="#6B7280" />
+                <Text className="text-gray-600 font-semibold ml-2">Barcode</Text>
+                <View className="ml-auto bg-gray-200 px-2 py-1 rounded">
+                  <Text className="text-xs text-gray-600">Read-only</Text>
+                </View>
+              </View>
+              <Text className="text-base text-gray-800 font-medium py-2">
+                {editedBarcode || "N/A"}
+              </Text>
+            </View>
+
+            {/* MRP & Current Stock Row - READ ONLY */}
+            <View className="flex-row gap-3 mb-4">
+              {/* MRP - READ ONLY */}
+              <View className="flex-1 bg-gray-50 rounded-2xl p-4 border border-gray-200">
+                <View className="flex-row items-center mb-2">
+                  <Ionicons name="cash" size={20} color="#6B7280" />
+                  <Text className="text-gray-600 font-semibold ml-2 text-sm">MRP (₹)</Text>
+                </View>
+                <Text className="text-lg font-bold text-gray-700 py-2">
+                  {editedMrp || "N/A"}
+                </Text>
+                {!editedMrp && (
+                  <Text className="text-xs text-amber-600 mt-1">⚠️ MRP not set</Text>
+                )}
+              </View>
+
+              {/* Current Stock - READ ONLY */}
+              <View className="flex-1 bg-gray-50 rounded-2xl p-4 border border-gray-200">
+                <View className="flex-row items-center mb-2">
+                  <Ionicons name="cube" size={20} color="#6B7280" />
+                  <Text className="text-gray-600 font-semibold ml-2 text-sm">Current Stock</Text>
+                </View>
+                <Text className="text-lg font-bold text-gray-700 py-2">
+                  {currentStock}
+                </Text>
+              </View>
+            </View>
+
+            {/* Counted Quantity - EDITABLE */}
+            <View className="bg-white rounded-2xl p-4 mb-4 shadow-md border-2 border-blue-300">
+              <View className="flex-row items-center mb-3">
+                <Ionicons name="create" size={20} color="#3B82F6" />
+                <Text className="text-gray-700 font-semibold ml-2">Counted Quantity</Text>
+                <View className="ml-auto bg-blue-100 px-2 py-1 rounded">
+                  <Text className="text-xs text-blue-600 font-semibold">Editable</Text>
+                </View>
+              </View>
+              <View className="flex-row items-center justify-center bg-blue-50 rounded-xl py-3">
                 <TouchableOpacity
                   onPress={decrementQuantity}
-                  className="bg-gray-100 w-10 h-10 rounded-lg items-center justify-center"
+                  className="bg-white w-12 h-12 rounded-xl items-center justify-center shadow-sm"
                 >
-                  <Ionicons name="remove" size={20} color="#374151" />
+                  <Ionicons name="remove" size={24} color="#3B82F6" />
                 </TouchableOpacity>
                 <TextInput
                   value={editedQuantity}
                   onChangeText={setEditedQuantity}
                   keyboardType="numeric"
-                  className="flex-1 mx-3 border border-gray-300 rounded-lg px-3 py-2 text-center font-semibold"
+                  className="flex-1 mx-4 text-center text-3xl font-bold text-blue-600"
                 />
                 <TouchableOpacity
                   onPress={incrementQuantity}
-                  className="bg-gray-100 w-10 h-10 rounded-lg items-center justify-center"
+                  className="bg-white w-12 h-12 rounded-xl items-center justify-center shadow-sm"
                 >
-                  <Ionicons name="add" size={20} color="#374151" />
+                  <Ionicons name="add" size={24} color="#3B82F6" />
                 </TouchableOpacity>
               </View>
             </View>
 
-            {/* Cost */}
-            <View>
-              <Text className="text-gray-700 font-medium mb-2">
-                E.Cost (₹)
-              </Text>
-              <TextInput
-                value={editedCost}
-                onChangeText={setEditedCost}
-                keyboardType="numeric"
-                placeholder="0"
-                className="border border-gray-300 rounded-lg px-3 py-2 font-semibold"
-              />
-              <Text className="text-xs text-gray-500 mt-1">
-                Enter the edited cost. Original cost remains unchanged.
-              </Text>
+            {/* Info Box */}
+            <View className="bg-blue-50 rounded-2xl p-4 mb-6 border border-blue-200">
+              <View className="flex-row items-start">
+                <Ionicons name="information-circle" size={20} color="#3B82F6" />
+                <Text className="text-sm text-blue-700 ml-2 flex-1">
+                  Only the counted quantity can be edited. All other fields are read-only to maintain data integrity.
+                </Text>
+              </View>
+            </View>
+
+            {/* Action Buttons */}
+            <View className="flex-row gap-3 mb-8">
+              <TouchableOpacity
+                onPress={handleBack}
+                className="flex-1 bg-gray-200 rounded-2xl py-4 shadow-sm"
+              >
+                <View className="flex-row items-center justify-center">
+                  <Ionicons name="close-circle" size={20} color="#6B7280" />
+                  <Text className="text-gray-700 font-semibold ml-2">Cancel</Text>
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleSave}
+                className="flex-1 bg-blue-600 rounded-2xl py-4 shadow-lg"
+              >
+                <View className="flex-row items-center justify-center">
+                  <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+                  <Text className="text-white font-semibold ml-2">Save Changes</Text>
+                </View>
+              </TouchableOpacity>
             </View>
           </View>
-
-          {/* Total Value */}
-          <View className="bg-blue-50 rounded-lg p-4 mb-6">
-            <Text className="text-center text-sm text-gray-600 mb-1">Total Value</Text>
-            <Text className="text-center text-2xl font-bold text-blue-600">
-              ₹{((parseFloat(editedCost) || 0) * (parseInt(editedQuantity) || 0)).toFixed(2)}
-            </Text>
-          </View>
-
-          {/* Action Buttons */}
-          <View className="flex-row gap-3 mb-8">
-            <TouchableOpacity
-              onPress={handleBack}
-              className="flex-1 bg-gray-400 rounded-lg py-3"
-            >
-              <Text className="text-white text-center font-semibold">Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleSave}
-              className="flex-1 bg-blue-500 rounded-lg py-3"
-            >
-              <Text className="text-white text-center font-semibold">Save</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </ScrollView>
+        </ScrollView>
+      )}
     </KeyboardAvoidingView>
   );
 }

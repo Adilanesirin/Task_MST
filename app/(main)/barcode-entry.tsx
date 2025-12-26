@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { Audio } from 'expo-av'; // CORRECTED IMPORT - Changed from expo-audio to expo-av
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
@@ -20,6 +21,7 @@ import {
 } from "react-native";
 
 const db = SQLite.openDatabaseSync("magicpedia.db");
+const MAX_ITEMS_LIMIT = 50;
 
 const styles = StyleSheet.create({
   container: {
@@ -261,7 +263,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   productDetails: {
-    gap: 6,
+    gap: 8,
   },
   detailRow: {
     flexDirection: 'row',
@@ -273,25 +275,41 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#4b5563',
   },
-  mrpText: {
+  currentStockText: {
     fontWeight: '600',
-    color: '#16a34a',
+    color: '#6b7280',
   },
-  costText: {
-    fontWeight: '600',
-    color: '#ea580c',
+  countedQtyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
   },
-  stockText: {
-    fontWeight: '600',
-    color: '#374151',
+  countedQtyLabel: {
+    fontSize: 14,
+    color: '#4b5563',
+    fontWeight: '500',
   },
-  eQtyText: {
-    fontWeight: '600',
+  quantityControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  quantityButton: {
+    width: 28,
+    height: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  quantityButtonDisabled: {
+    opacity: 0.3,
+  },
+  countedQtyText: {
+    fontWeight: '700',
+    fontSize: 18,
     color: '#2563eb',
-  },
-  eCostText: {
-    fontWeight: '600',
-    color: '#dc2626',
+    minWidth: 35,
+    textAlign: 'center',
   },
   saveButton: {
     marginTop: 24,
@@ -402,177 +420,167 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
   },
+  limitIndicator: {
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+  },
+  limitIndicatorText: {
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '600',
+  },
 });
 
-// Initialize orders_to_sync table with robust migration
-const initOrdersTable = async () => {
-  try {
-    console.log("📄 Initializing orders_to_sync table...");
-    
-    // Drop and recreate the table to ensure all columns exist
-    await db.execAsync(`DROP TABLE IF EXISTS orders_to_sync`);
-    
-    // Create table with all required columns
-    await db.execAsync(`
-      CREATE TABLE orders_to_sync (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        userid TEXT NOT NULL,
-        itemcode TEXT NOT NULL,
-        barcode TEXT NOT NULL,
-        quantity INTEGER NOT NULL,
-        rate REAL NOT NULL,
-        mrp REAL NOT NULL,
-        order_date TEXT NOT NULL,
-        sync_status TEXT DEFAULT 'pending',
-        created_at TEXT NOT NULL,
-        product_name TEXT
-      );
-    `);
-    
-    console.log("✅ orders_to_sync table created successfully with all columns");
-    
-  } catch (error) {
-    console.error("❌ Error initializing orders table:", error);
-  }
+let dbInitialized = false;
+const dbQueue: (() => Promise<any>)[] = [];
+let isProcessingQueue = false;
+
+const runInQueue = async <T,>(fn: () => Promise<T>): Promise<T> => {
+  return new Promise<T>((resolve, reject) => {
+    dbQueue.push(async () => {
+      try {
+        const result = await fn();
+        resolve(result);
+        return result;
+      } catch (error) {
+        reject(error);
+        throw error;
+      }
+    });
+    processQueue();
+  });
 };
 
-// Initialize pending items table
-const initPendingItemsTable = async () => {
-  try {
-    console.log("📄 Initializing pending_items table...");
-    
-    // Use withTransactionAsync to ensure operations are sequential
-    await db.withTransactionAsync(async () => {
-      // Check current table structure
-      const columns = await db.getAllAsync(`PRAGMA table_info(pending_items)`);
+const processQueue = async () => {
+  if (isProcessingQueue || dbQueue.length === 0) return;
+  
+  isProcessingQueue = true;
+  while (dbQueue.length > 0) {
+    const task = dbQueue.shift();
+    if (task) {
+      try {
+        await task();
+      } catch (error) {
+        console.error("Queue task error:", error);
+      }
+    }
+  }
+  isProcessingQueue = false;
+};
+
+const initStockCountTable = async () => {
+  if (dbInitialized) return;
+  
+  return runInQueue(async () => {
+    try {
+      console.log("[DB] Initializing stock_count table...");
       
-      if (columns.length === 0) {
-        // Table doesn't exist, create it
-        console.log("📝 Creating new pending_items table...");
+      const tables = await db.getAllAsync(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='stock_count'"
+      );
+      
+      if (tables.length === 0) {
+        console.log("[DB] Creating new stock_count table...");
+        await db.execAsync(`
+          CREATE TABLE stock_count (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userid TEXT NOT NULL,
+            itemcode TEXT NOT NULL,
+            barcode TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            count_date TEXT NOT NULL,
+            sync_status TEXT DEFAULT 'pending',
+            created_at TEXT NOT NULL,
+            product_name TEXT
+          );
+        `);
+        console.log("[DB] stock_count table created successfully");
+      } else {
+        console.log("[DB] stock_count table exists");
+      }
+      
+      console.log("[DB] stock_count table ready");
+      
+    } catch (error) {
+      console.error("[ERROR] Error initializing stock count table:", error);
+      throw error;
+    }
+  });
+};
+
+const initPendingItemsTable = async () => {
+  if (dbInitialized) return;
+  
+  return runInQueue(async () => {
+    try {
+      console.log("[DB] Initializing pending_items table...");
+      
+      const tables = await db.getAllAsync(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='pending_items'"
+      );
+      
+      if (tables.length === 0) {
+        console.log("[DB] Creating new pending_items table...");
         await db.execAsync(`
           CREATE TABLE pending_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             barcode TEXT NOT NULL,
             name TEXT,
-            bmrp REAL,
-            cost REAL,
-            quantity INTEGER,
-            eCost REAL,
             currentStock INTEGER,
+            countedQuantity INTEGER DEFAULT 0,
             scannedAt INTEGER,
             product TEXT,
             brand TEXT
           );
         `);
-        console.log("✅ Pending items table created successfully");
+        console.log("[DB] Pending items table created successfully");
       } else {
-        const hasSupplierCode = columns.some((col: any) => col.name === 'supplier_code');
-        
-        if (hasSupplierCode) {
-          console.log("🔄 Old table structure detected, recreating...");
-          // Rename old table
-          await db.execAsync(`ALTER TABLE pending_items RENAME TO pending_items_old;`);
-          
-          // Create new table with correct structure
-          await db.execAsync(`
-            CREATE TABLE pending_items (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              barcode TEXT NOT NULL,
-              name TEXT,
-              bmrp REAL,
-              cost REAL,
-              quantity INTEGER,
-              eCost REAL,
-              currentStock INTEGER,
-              scannedAt INTEGER,
-              product TEXT,
-              brand TEXT
-            );
-          `);
-          
-          // Copy data from old table (excluding supplier_code)
-          await db.execAsync(`
-            INSERT INTO pending_items (id, barcode, name, bmrp, cost, quantity, eCost, currentStock, scannedAt, product, brand)
-            SELECT id, barcode, name, bmrp, cost, quantity, eCost, currentStock, scannedAt, product, brand
-            FROM pending_items_old;
-          `);
-          
-          // Drop old table
-          await db.execAsync(`DROP TABLE pending_items_old;`);
-          console.log("✅ Table migrated successfully");
-        } else {
-          console.log("✅ Pending items table already exists with correct structure");
-        }
+        console.log("[DB] Table exists");
       }
-    });
-  } catch (error) {
-    console.error("❌ Error initializing pending_items table:", error);
-  }
+      
+      dbInitialized = true;
+    } catch (error) {
+      console.error("[ERROR] Error initializing pending_items table:", error);
+      throw error;
+    }
+  });
 };
 
-// Save order to sync queue
-const saveOrderToSync = async (orderData: {
+const saveStockCountToSync = async (stockData: {
   userid: string;
   itemcode: string;
   barcode: string;
   quantity: number;
-  rate: number;
-  mrp: number;
-  order_date: string;
+  count_date: string;
   product_name?: string;
 }) => {
-  try {
-    console.log("💾 Saving order to sync:", orderData.barcode);
-    
-    await db.runAsync(
-      `INSERT INTO orders_to_sync 
-      (userid, itemcode, barcode, quantity, rate, mrp, order_date, sync_status, created_at, product_name)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now'), ?)`,
-      [
-        orderData.userid,
-        orderData.itemcode,
-        orderData.barcode,
-        orderData.quantity,
-        orderData.rate,
-        orderData.mrp,
-        orderData.order_date,
-        orderData.product_name || '',
-      ]
-    );
-    
-    console.log(`✅ Successfully saved order to sync: ${orderData.barcode}`);
-    return true;
-  } catch (error: any) {
-    console.error("❌ Error saving order to sync:", error);
-    
-    // If there's still a column error, try the fallback approach
-    if (error.message && error.message.includes('no column named product_name')) {
-      console.log("📄 Trying fallback without product_name...");
-      try {
-        await db.runAsync(
-          `INSERT INTO orders_to_sync 
-          (userid, itemcode, barcode, quantity, rate, mrp, order_date, sync_status, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now'))`,
-          [
-            orderData.userid,
-            orderData.itemcode,
-            orderData.barcode,
-            orderData.quantity,
-            orderData.rate,
-            orderData.mrp,
-            orderData.order_date,
-          ]
-        );
-        console.log(`✅ Fallback save successful for: ${orderData.barcode}`);
-        return true;
-      } catch (fallbackError) {
-        console.error("❌ Fallback save also failed:", fallbackError);
-        throw fallbackError;
-      }
+  return runInQueue(async () => {
+    try {
+      console.log("[SAVE] Saving stock count to sync:", stockData.barcode);
+      
+      await db.runAsync(
+        `INSERT INTO stock_count 
+        (userid, itemcode, barcode, quantity, count_date, sync_status, created_at, product_name)
+        VALUES (?, ?, ?, ?, ?, 'pending', datetime('now'), ?)`,
+        [
+          stockData.userid,
+          stockData.itemcode,
+          stockData.barcode,
+          stockData.quantity,
+          stockData.count_date,
+          stockData.product_name || '',
+        ]
+      );
+      
+      console.log("[SUCCESS] Successfully saved stock count:", stockData.barcode);
+      return true;
+    } catch (error: any) {
+      console.error("[ERROR] Error saving stock count:", error);
+      throw error;
     }
-    
-    throw error;
-  }
+  });
 };
 
 export default function BarcodeEntry() {
@@ -598,78 +606,274 @@ export default function BarcodeEntry() {
   const scanLockRef = useRef(false);
   const processingAlertRef = useRef(false);
 
+  // Sound state for expo-av
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [soundLoaded, setSoundLoaded] = useState(false);
+
   const inputRef = useRef<TextInput>(null);
+
+  // Load sound effect with expo-av
+  useEffect(() => {
+    loadSound();
+    
+    return () => {
+      // Clean up audio resources
+      if (sound) {
+        sound.unloadAsync();
+      }
+    };
+  }, []);
+
+  const loadSound = async () => {
+    try {
+      console.log('[AUDIO] Loading beep sound...');
+      
+      // Initialize audio
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        allowsRecordingIOS: false,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+      
+      // Create and load the sound
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri: 'https://www.soundjay.com/buttons/beep-01a.mp3' },
+        { shouldPlay: false, isLooping: false }
+      );
+      
+      setSound(newSound);
+      setSoundLoaded(true);
+      console.log('[AUDIO] Beep sound loaded successfully');
+    } catch (error) {
+      console.error('[ERROR] Failed to load beep sound:', error);
+      setSoundLoaded(false);
+    }
+  };
+
+  const playBeep = async () => {
+    try {
+      if (!soundLoaded || !sound) {
+        console.log('[AUDIO] Sound not loaded, skipping beep');
+        return;
+      }
+      
+      await sound.replayAsync();
+      
+      console.log('[AUDIO] Beep played successfully');
+    } catch (error) {
+      console.error('[ERROR] Failed to play beep:', error);
+    if (sound) {
+      try{
+        await sound.stopAsync();
+        await sound.setPositionAsync(0);
+        await sound.playAsync();
+      } catch (fallbackError) {
+        console.error('[ERROR] Fallback failed to play beep:', fallbackError);
+      }
+    }
+   } 
+  };
+
+  // NEW FUNCTION: Check if any items have zero quantity
+  const hasZeroQuantityItems = (items: any[] = scannedItems): boolean => {
+    return items.some(item => {
+      const quantity = item.countedQuantity || 0;
+      return quantity === 0 || isNaN(quantity);
+    });
+  };
+
+  // NEW FUNCTION: Get zero quantity items count and names
+  const getZeroQuantityItemsInfo = () => {
+    const zeroItems = scannedItems.filter(item => {
+      const quantity = item.countedQuantity || 0;
+      return quantity === 0 || isNaN(quantity);
+    });
+    
+    return {
+      count: zeroItems.length,
+      names: zeroItems.map(item => item.name || 'Unknown Product'),
+      items: zeroItems
+    };
+  };
+
+  // MODIFIED: Show alert for zero quantity items
+  const showZeroQuantityAlert = (action: string = "add new items") => {
+    const zeroItemsInfo = getZeroQuantityItemsInfo();
+    
+    if (zeroItemsInfo.count === 0) return false;
+    
+    const itemNames = zeroItemsInfo.names
+      .slice(0, 3) // Show only first 3 items to avoid too long alert
+      .map(name => `• ${name}`)
+      .join('\n');
+    
+    const moreCount = Math.max(0, zeroItemsInfo.count - 3);
+    const moreText = moreCount > 0 ? `\n... and ${moreCount} more item(s)` : '';
+    
+    Alert.alert(
+      "Quantity Required",
+      `You have ${zeroItemsInfo.count} item(s) with quantity 0:\n\n${itemNames}${moreText}\n\nPlease set quantities for these items before ${action}.`,
+      [
+        {
+          text: "Go to Items",
+          onPress: () => {
+            // Scroll to the first zero quantity item
+            // We could implement scroll to functionality if needed
+          },
+          style: "default"
+        },
+        {
+          text: "OK",
+          style: "cancel"
+        }
+      ]
+    );
+    
+    return true;
+  };
+
+  const checkItemLimit = (currentCount: number): boolean => {
+    if (currentCount >= MAX_ITEMS_LIMIT) {
+      Alert.alert(
+        "Item Limit Reached",
+        `You have reached the maximum limit of ${MAX_ITEMS_LIMIT} items.\n\nPlease upload the current items before adding more products.`,
+        [
+          {
+            text: "Upload Now",
+            onPress: () => router.push("/(main)/upload"),
+            style: "default"
+          },
+          {
+            text: "Cancel",
+            style: "cancel"
+          }
+        ]
+      );
+      return true;
+    }
+    return false;
+  };
+
+  // NEW: Combined validation check
+  const validateCanAddNewItem = (): boolean => {
+    // First check item limit
+    if (checkItemLimit(scannedItems.length)) {
+      return false;
+    }
+    
+    // Then check for zero quantity items
+    if (hasZeroQuantityItems()) {
+      showZeroQuantityAlert();
+      return false;
+    }
+    
+    return true;
+  };
 
   useEffect(() => {
     const initialize = async () => {
-      console.log("🚀 Initializing BarcodeEntry component...");
-      await initOrdersTable();
-      await initPendingItemsTable();
-      await loadPendingItems();
+      console.log("[INIT] Initializing BarcodeEntry component...");
+      try {
+        await initStockCountTable();
+        await initPendingItemsTable();
+        await loadPendingItems();
+        await loadAllProducts();
+      } catch (error) {
+        console.error("[ERROR] Initialization error:", error);
+        Alert.alert("Error", "Failed to initialize database. Please restart the app.");
+      }
     };
     initialize();
   }, []);
 
   const loadPendingItems = async () => {
-    try {
-      const rows = await db.getAllAsync(
-        "SELECT * FROM pending_items ORDER BY scannedAt DESC"
-      );
-      setScannedItems(rows);
-      console.log(`📦 Loaded ${rows.length} pending items`);
-    } catch (error) {
-      console.error("Error loading pending items:", error);
-    }
+    return runInQueue(async () => {
+      try {
+        const rows = await db.getAllAsync(
+          "SELECT * FROM pending_items ORDER BY scannedAt DESC"
+        );
+        setScannedItems(rows || []);
+        console.log(`[LOAD] Loaded ${rows?.length || 0} pending items`);
+      } catch (error) {
+        console.error("[ERROR] Error loading pending items:", error);
+        setScannedItems([]);
+      }
+    });
   };
 
   const savePendingItem = async (item: any) => {
-    try {
-      await db.runAsync(
-        `INSERT INTO pending_items 
-        (barcode, name, bmrp, cost, quantity, eCost, currentStock, scannedAt, product, brand)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          item.barcode,
-          item.name,
-          item.bmrp || 0,
-          item.cost || 0,
-          item.quantity || 0,
-          item.eCost || 0,
-          item.currentStock || 0,
-          item.scannedAt,
-          item.product || "",
-          item.brand || ""
-        ]
-      );
-      console.log(`✅ Saved pending item: ${item.barcode}`);
-    } catch (error) {
-      console.error("Error saving pending item:", error);
-    }
+    return runInQueue(async () => {
+      try {
+        await db.runAsync(
+          `INSERT INTO pending_items 
+          (barcode, name, currentStock, countedQuantity, scannedAt, product, brand)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [
+            item.barcode,
+            item.name,
+            item.currentStock || 0,
+            item.countedQuantity || 0,
+            item.scannedAt,
+            item.product || "",
+            item.brand || ""
+          ]
+        );
+        console.log("[SUCCESS] Saved pending item:", item.barcode);
+      } catch (error) {
+        console.error("[ERROR] Error saving pending item:", error);
+        throw error;
+      }
+    });
   };
 
   const deletePendingItem = async (itemId: number) => {
-    try {
-      await db.runAsync(
-        "DELETE FROM pending_items WHERE id = ?",
-        [itemId]
-      );
-      console.log(`🗑️ Deleted pending item: ${itemId}`);
-    } catch (error) {
-      console.error("Error deleting pending item:", error);
-    }
+    return runInQueue(async () => {
+      try {
+        await db.runAsync(
+          "DELETE FROM pending_items WHERE id = ?",
+          [itemId]
+        );
+        console.log("[DELETE] Deleted pending item:", itemId);
+      } catch (error) {
+        console.error("[ERROR] Error deleting pending item:", error);
+        throw error;
+      }
+    });
   };
 
   const updatePendingItem = async (itemId: number, item: any) => {
-    try {
-      await db.runAsync(
-        `UPDATE pending_items 
-        SET quantity = ?, eCost = ?, cost = ?
-        WHERE id = ?`,
-        [item.quantity, item.eCost, item.cost, itemId]
-      );
-      console.log(`✏️ Updated pending item: ${itemId}`);
-    } catch (error) {
-      console.error("Error updating pending item:", error);
+    return runInQueue(async () => {
+      try {
+        await db.runAsync(
+          `UPDATE pending_items 
+          SET countedQuantity = ?
+          WHERE id = ?`,
+          [item.countedQuantity, itemId]
+        );
+        console.log("[UPDATE] Updated pending item:", itemId);
+      } catch (error) {
+        console.error("[ERROR] Error updating pending item:", error);
+        throw error;
+      }
+    });
+  };
+
+  const handleQuantityChange = async (index: number, delta: number) => {
+    const item = scannedItems[index];
+    const newQuantity = Math.max(0, (item.countedQuantity || 0) + delta);
+    
+    const updatedItem = { ...item, countedQuantity: newQuantity };
+    
+    setScannedItems(prevItems => {
+      const newItems = [...prevItems];
+      newItems[index] = updatedItem;
+      return newItems;
+    });
+    
+    if (item.id) {
+      await updatePendingItem(item.id, updatedItem);
     }
   };
 
@@ -683,17 +887,117 @@ export default function BarcodeEntry() {
     loadScanMode();
   }, []);
 
-  useEffect(() => {
-    loadAllProducts();
-  }, []);
-
   const loadAllProducts = async () => {
-    try {
-      const rows = await db.getAllAsync("SELECT * FROM product_data");
-      setAllProducts(rows);
-    } catch (error) {
-      console.error("Error loading products:", error);
-    }
+    return runInQueue(async () => {
+      try {
+        const rows = await db.getAllAsync("SELECT * FROM product_data");
+        setAllProducts(rows || []);
+        console.log(`[LOAD] Loaded ${rows?.length || 0} products from database`);
+        
+        if (rows && rows.length > 0) {
+          console.log("[INFO] Sample product:", JSON.stringify(rows[0], null, 2));
+        } else {
+          console.warn("[WARNING] product_data table is EMPTY! You need to sync data first.");
+        }
+      } catch (error) {
+        console.error("[ERROR] Error loading products:", error);
+        setAllProducts([]);
+      }
+    });
+  };
+
+  // ✅ CORRECTLY PLACED: searchBarcodeWithVariants function inside component
+  const searchBarcodeWithVariants = async (barcode: string): Promise<any[]> => {
+    return runInQueue(async () => {
+      try {
+        console.log("\n[SEARCH] === BARCODE SEARCH START ===");
+        console.log(`[SEARCH] Searching for: "${barcode}"`);
+        
+        const totalCount = await db.getFirstAsync(
+          'SELECT COUNT(*) as count FROM product_data'
+        ) as {count: number} | null;
+        
+        console.log(`[INFO] Total products in database: ${totalCount?.count || 0}`);
+        
+        if (!totalCount || totalCount.count === 0) {
+          console.error("[ERROR] CRITICAL: product_data table is EMPTY!");
+          Alert.alert(
+            "Database Empty",
+            "No products found in database.\n\nPlease sync/download data from server first.",
+            [{ text: "OK" }]
+          );
+          return [];
+        }
+
+        const trimmedBarcode = barcode.trim();
+        console.log(`[SEARCH] Trimmed barcode: "${trimmedBarcode}"`);
+
+        const exactRows = await db.getAllAsync(
+          "SELECT * FROM product_data WHERE TRIM(barcode) = ?",
+          [trimmedBarcode]
+        );
+        console.log(`[RESULT] Exact matches: ${exactRows?.length || 0}`);
+
+        const noSpaceBarcode = trimmedBarcode.replace(/\s+/g, '');
+        const noSpaceRows = await db.getAllAsync(
+          "SELECT * FROM product_data WHERE REPLACE(TRIM(barcode), ' ', '') = ?",
+          [noSpaceBarcode]
+        );
+        console.log(`[RESULT] No-space matches: ${noSpaceRows?.length || 0}`);
+
+        const variantRows1 = await db.getAllAsync(
+          "SELECT * FROM product_data WHERE barcode LIKE ?",
+          [`${trimmedBarcode} :%`]
+        );
+        console.log(`[RESULT] Variants (space colon): ${variantRows1?.length || 0}`);
+
+        const variantRows2 = await db.getAllAsync(
+          "SELECT * FROM product_data WHERE barcode LIKE ?",
+          [`${trimmedBarcode}:%`]
+        );
+        console.log(`[RESULT] Variants (no space): ${variantRows2?.length || 0}`);
+
+        const variantRows3 = await db.getAllAsync(
+          "SELECT * FROM product_data WHERE barcode LIKE ?",
+          [`${trimmedBarcode} %`]
+        );
+        console.log(`[RESULT] Variants (space): ${variantRows3?.length || 0}`);
+
+        const containsRows = await db.getAllAsync(
+          "SELECT * FROM product_data WHERE barcode LIKE ?",
+          [`%${trimmedBarcode}%`]
+        );
+        console.log(`[RESULT] Contains matches: ${containsRows?.length || 0}`);
+
+        const allMatches = [...exactRows, ...noSpaceRows, ...variantRows1, ...variantRows2, ...variantRows3, ...containsRows];
+        
+        const uniqueMatches = allMatches.filter((item, index, self) =>
+          index === self.findIndex((t) => t.barcode === item.barcode)
+        );
+        
+        console.log(`[RESULT] Total unique matches: ${uniqueMatches.length}`);
+        
+        if (uniqueMatches.length > 0) {
+          console.log("[SUCCESS] First match found:", JSON.stringify(uniqueMatches[0], null, 2));
+          console.log("[INFO] All matching barcodes:", uniqueMatches.map(m => m.barcode).join(', '));
+        } else {
+          console.warn(`[WARNING] No matches found for barcode: ${trimmedBarcode}`);
+          
+          const similarRows = await db.getAllAsync(
+            "SELECT barcode FROM product_data WHERE barcode LIKE ? LIMIT 5",
+            [`%${trimmedBarcode.substring(0, 8)}%`]
+          );
+          console.log("[INFO] Similar barcodes in DB:", similarRows.map((r: any) => r.barcode).join(', '));
+        }
+        
+        console.log("[SEARCH] === BARCODE SEARCH END ===\n");
+        return uniqueMatches;
+      } catch (err) {
+        console.error("[ERROR] Database search error:", err);
+        Alert.alert("Search Error", `Failed to search database: ${err}`);
+        return [];
+      }
+    });
   };
 
   useEffect(() => {
@@ -705,7 +1009,10 @@ export default function BarcodeEntry() {
         setScannedItems(prevItems => {
           const newItems = [...prevItems];
           if (index >= 0 && index < newItems.length) {
-            newItems[index] = { ...newItems[index], ...parsedItem };
+            newItems[index] = { 
+              ...newItems[index], 
+              countedQuantity: parsedItem.countedQuantity
+            };
             if (newItems[index].id) {
               updatePendingItem(newItems[index].id, newItems[index]);
             }
@@ -720,7 +1027,7 @@ export default function BarcodeEntry() {
           itemIndex: undefined 
         } as any);
       } catch (error) {
-        console.error("Error parsing updated item:", error);
+        console.error("[ERROR] Error parsing updated item:", error);
       }
     }
   }, [updatedItem, itemIndex]);
@@ -765,7 +1072,9 @@ export default function BarcodeEntry() {
     
     if (searchMode === 'name' && text.trim().length >= 2) {
       const searchLower = text.toLowerCase().trim();
-      const filtered = allProducts.filter((product: any) => 
+      const products = allProducts || [];
+      
+      const filtered = products.filter((product: any) => 
         product.name?.toLowerCase().includes(searchLower) ||
         product.brand?.toLowerCase().includes(searchLower) ||
         product.product?.toLowerCase().includes(searchLower)
@@ -779,14 +1088,24 @@ export default function BarcodeEntry() {
     }
   };
 
+  // MODIFIED: Removed playBeep from manual search
   const handleSelectSuggestion = (product: any) => {
+    if (!validateCanAddNewItem()) {
+      return;
+    }
+    
     setManualBarcode(product.name);
     setShowSuggestions(false);
     Keyboard.dismiss();
     addProductToList(product);
   };
 
+  // MODIFIED: Removed playBeep from manual add
   const addProductToList = async (product: any) => {
+    if (!validateCanAddNewItem()) {
+      return;
+    }
+    
     const existing = scannedItems.find((item) => item.barcode === product.barcode);
     if (existing) {
       Alert.alert("Info", `Product already scanned: ${existing.name}`);
@@ -795,9 +1114,7 @@ export default function BarcodeEntry() {
 
     const newItem = {
       ...product,
-      quantity: 0,
-      cost: product.cost ?? product.bmrp ?? 0,
-      eCost: 0,
+      countedQuantity: 0,
       currentStock: product.quantity ?? 0,
       scannedAt: new Date().getTime(),
     };
@@ -807,36 +1124,7 @@ export default function BarcodeEntry() {
     setManualBarcode("");
   };
 
-  const searchBarcodeWithVariants = async (barcode: string) => {
-    try {
-      const exactRows = await db.getAllAsync(
-        "SELECT * FROM product_data WHERE barcode = ?",
-        [barcode]
-      );
-
-      const variantRows1 = await db.getAllAsync(
-        "SELECT * FROM product_data WHERE barcode LIKE ?",
-        [`${barcode} :%`]
-      );
-
-      const variantRows2 = await db.getAllAsync(
-        "SELECT * FROM product_data WHERE barcode LIKE ?",
-        [`${barcode}:%`]
-      );
-
-      console.log('Barcode search:', barcode);
-      console.log('Exact matches:', exactRows.length);
-      console.log('Variants (with space):', variantRows1.length);
-      console.log('Variants (no space):', variantRows2.length);
-
-      const allMatches = [...exactRows, ...variantRows1, ...variantRows2];
-      return allMatches;
-    } catch (err) {
-      console.error("Error searching barcode:", err);
-      throw err;
-    }
-  };
-
+  // MODIFIED: Added playBeep only for camera/hardware scanner
   const handleBarCodeScanned = async ({ data }: { data: string }) => {
     if (showScanner) {
       if (scanLockRef.current || scanned || processingAlertRef.current) {
@@ -848,12 +1136,30 @@ export default function BarcodeEntry() {
     }
 
     try {
+      // Check if we can add new items (item limit + zero quantity)
+      if (!validateCanAddNewItem()) {
+        if (showScanner) {
+          setScanned(false);
+          scanLockRef.current = false;
+          processingAlertRef.current = false;
+        }
+        return;
+      }
+
+      console.log(`[SCAN] Barcode scanned: "${data}"`);
+      
+      // Play beep sound on successful scan detection (only for scanners)
+      await playBeep();
+      
       const allMatches = await searchBarcodeWithVariants(data);
 
-      if (allMatches.length === 0) {
+      console.log(`[SCAN] Matches received: ${allMatches?.length || 0}`);
+      
+      if (!allMatches || !Array.isArray(allMatches) || allMatches.length === 0) {
+        console.error("[ERROR] No matches found - showing error alert");
         Alert.alert(
           "Product not found", 
-          `Barcode: ${data}\n\nThis product is not found in the database.`,
+          `Barcode: ${data}\n\nThis product is not in the database.`,
           [
             {
               text: 'OK',
@@ -869,6 +1175,8 @@ export default function BarcodeEntry() {
         );
         return;
       }
+      
+      console.log(`[SUCCESS] Proceeding with ${allMatches.length} match(es)`);
 
       if (allMatches.length === 1) {
         const product = allMatches[0] as { [key: string]: any; quantity?: number };
@@ -892,9 +1200,7 @@ export default function BarcodeEntry() {
 
         const newItem = {
           ...product,
-          quantity: 0,
-          cost: product.cost ?? product.bmrp ?? 0,
-          eCost: 0,
+          countedQuantity: 0,
           currentStock: product.quantity ?? 0,
           scannedAt: new Date().getTime(),
         };
@@ -920,7 +1226,7 @@ export default function BarcodeEntry() {
         }
       }
     } catch (err) {
-      console.error("Error fetching product:", err);
+      console.error("[ERROR] Error fetching product:", err);
       Alert.alert("Error", "Failed to scan product.", [
         {
           text: 'OK',
@@ -936,6 +1242,7 @@ export default function BarcodeEntry() {
     }
   };
 
+  // MODIFIED: Removed playBeep from manual search
   const handleManualSearch = async () => {
     const trimmed = manualBarcode.trim();
     if (!trimmed) {
@@ -943,64 +1250,99 @@ export default function BarcodeEntry() {
       return;
     }
 
+    // Check if we can add new items (item limit + zero quantity)
+    if (!validateCanAddNewItem()) {
+      return;
+    }
+
+    console.log("\n[SEARCH] === MANUAL SEARCH START ===");
+    console.log(`[SEARCH] Search mode: ${searchMode}`);
+    console.log(`[SEARCH] Search term: "${trimmed}"`);
+
     if (searchMode === 'barcode') {
       try {
+        console.log("[SEARCH] Calling searchBarcodeWithVariants...");
         const allMatches = await searchBarcodeWithVariants(trimmed);
 
-        if (allMatches.length === 0) {
+        console.log(`[RESULT] Manual search - Matches received: ${allMatches?.length || 0}`);
+        
+        if (!allMatches || !Array.isArray(allMatches) || allMatches.length === 0) {
+          console.error("[ERROR] No matches found for manual search");
           Alert.alert(
             "Product not found",
-            `Barcode: ${trimmed}\n\nThis product is not found in the database.`
+            `Barcode: ${trimmed}\n\nThis product is not in the database.`
           );
           return;
         }
 
+        console.log(`[SUCCESS] Found ${allMatches.length} match(es)`);
+
+        // REMOVED: playBeep() call for manual search
+
         if (allMatches.length === 1) {
+          console.log("[SUCCESS] Single match - adding to list");
           const product = allMatches[0] as { [key: string]: any; quantity?: number };
           const existing = scannedItems.find((item) => item.barcode === product.barcode);
           
           if (existing) {
+            console.log("[INFO] Product already in list");
             Alert.alert("Info", `Product already scanned: ${existing.name}`);
             return;
           }
 
           const newItem = {
             ...product,
-            quantity: 0,
-            cost: product.cost ?? product.bmrp ?? 0,
-            eCost: 0,
+            countedQuantity: 0,
             currentStock: product.quantity ?? 0,
             scannedAt: new Date().getTime(),
           };
 
+          console.log("[SAVE] Saving item:", newItem.name);
           await savePendingItem(newItem);
           await loadPendingItems();
           
           setManualBarcode("");
+          console.log("[SUCCESS] Item added successfully");
         } else {
+          console.log(`[INFO] Multiple matches (${allMatches.length}) - showing suggestions`);
           setSuggestions(allMatches);
           setShowSuggestions(true);
         }
+        
+        console.log("[SEARCH] === MANUAL SEARCH END ===\n");
       } catch (err) {
-        console.error("Error fetching product:", err);
-        Alert.alert("Error", "Failed to fetch product.");
+        console.error("[ERROR] Manual search error:", err);
+        Alert.alert("Error", `Failed to fetch product: ${err}`);
       }
     } else {
+      console.log("[SEARCH] Name search mode");
       const searchLower = trimmed.toLowerCase();
-      const matches = allProducts.filter((product: any) => 
+      const products = allProducts || [];
+      
+      console.log(`[SEARCH] Searching in ${products.length} products`);
+      
+      const matches = products.filter((product: any) => 
         product.name?.toLowerCase().includes(searchLower) ||
         product.brand?.toLowerCase().includes(searchLower) ||
         product.product?.toLowerCase().includes(searchLower)
       );
 
+      console.log(`[RESULT] Name search found ${matches.length} matches`);
+
       if (matches.length === 1) {
+        console.log("[SUCCESS] Single name match - adding to list");
+        // REMOVED: playBeep() call for name search
         await addProductToList(matches[0]);
       } else if (matches.length > 1) {
+        console.log("[INFO] Multiple name matches - showing suggestions");
         setSuggestions(matches);
         setShowSuggestions(true);
       } else {
+        console.log("[ERROR] No name matches found");
         Alert.alert("Not Found", `No products found matching: "${trimmed}"`);
       }
+      
+      console.log("[SEARCH] === MANUAL SEARCH END ===\n");
     }
   };
 
@@ -1077,29 +1419,25 @@ export default function BarcodeEntry() {
     }, 300);
   };
 
-  const updateQuantities = async () => {
-    // First validation: Check for items with missing or zero values
-    const itemsWithMissingData = scannedItems.filter(item => {
-      const hasInvalidMrp = !item.bmrp || item.bmrp === 0 || isNaN(item.bmrp);
-      const hasInvalidCost = !item.cost || item.cost === 0 || isNaN(item.cost);
-      const hasInvalidQty = !item.quantity || item.quantity === 0 || isNaN(item.quantity);
-      return hasInvalidMrp || hasInvalidCost || hasInvalidQty;
+  const updateStockCounts = async () => {
+    const itemsWithZeroCount = scannedItems.filter(item => {
+      return !item.countedQuantity || item.countedQuantity === 0 || isNaN(item.countedQuantity);
     });
 
-    if (itemsWithMissingData.length > 0) {
-      const itemNames = itemsWithMissingData.map(item => `• ${item.name}`).join('\n');
+    if (itemsWithZeroCount.length > 0) {
+      const itemNames = itemsWithZeroCount.map(item => `- ${item.name}`).join('\n');
       
       Alert.alert(
-        "⚠️ Incomplete Data Warning",
-        `The following ${itemsWithMissingData.length} item(s) have missing or zero values for MRP, Cost, or Quantity:\n\n${itemNames}\n\nDo you want to proceed with the update?`,
+        "Zero Quantity Items",
+        `The following ${itemsWithZeroCount.length} item(s) have counted quantity of 0:\n\n${itemNames}\n\nThese items will be saved with a count of 0. Do you want to proceed?`,
         [
           {
             text: "Cancel",
             style: "cancel"
           },
           {
-            text: "Proceed Anyway",
-            style: "destructive",
+            text: "Save All Items",
+            style: "default",
             onPress: () => showFinalConfirmation()
           }
         ]
@@ -1111,15 +1449,15 @@ export default function BarcodeEntry() {
 
   const showFinalConfirmation = () => {
     Alert.alert(
-      "Confirm Update",
-      `Are you sure you want to update quantities for ${scannedItems.length} item(s)? This action cannot be undone.`,
+      "Confirm Stock Count",
+      `Are you sure you want to save stock count for ${scannedItems.length} item(s)? This action cannot be undone.`,
       [
         {
           text: "Cancel",
           style: "cancel"
         },
         {
-          text: "Update",
+          text: "Save Count",
           style: "default",
           onPress: async () => {
             try {
@@ -1129,78 +1467,79 @@ export default function BarcodeEntry() {
               let successCount = 0;
               let errorCount = 0;
 
-              console.log(`📄 Starting sync for ${scannedItems.length} items...`);
+              console.log(`[SAVE] Starting stock count save for ${scannedItems.length} items...`);
 
-              // Process each item individually
               for (const item of scannedItems) {
                 try {
-                  const finalCost = item.eCost !== 0 ? item.eCost : item.cost;
-                  
-                  // Fetch the actual item code from database
                   let itemCode = item.barcode;
-                  const productData = await db.getFirstAsync(
-                    "SELECT code FROM product_data WHERE barcode = ?",
-                    [item.barcode]
-                  ) as { code?: string } | null;
+                  
+                  const productData = await runInQueue(async () => {
+                    return await db.getFirstAsync(
+                      "SELECT code FROM product_data WHERE barcode = ?",
+                      [item.barcode]
+                    ) as { code?: string } | null;
+                  });
+                  
                   itemCode = productData?.code || item.barcode;
                   
-                  console.log(`📤 Syncing item: ${item.barcode} (${item.name})`);
+                  const quantityToSave = item.countedQuantity || 0;
                   
-                  // Save to sync table
-                  await saveOrderToSync({
+                  console.log(`[SAVE] Saving stock count: ${item.barcode} (${item.name}) - Qty: ${quantityToSave}`);
+                  
+                  await saveStockCountToSync({
                     userid: userId ?? "unknown",
                     itemcode: itemCode,
                     barcode: item.barcode,
-                    quantity: item.quantity,
-                    rate: finalCost ?? 0,
-                    mrp: item.bmrp ?? 0,
-                    order_date: today,
+                    quantity: quantityToSave,
+                    count_date: today,
                     product_name: item.name,
                   });
 
-                  // Update product_data if exists
-                  const productExists = await db.getFirstAsync(
-                    "SELECT 1 FROM product_data WHERE barcode = ?",
-                    [item.barcode]
-                  );
-                  
-                  if (productExists) {
-                    await db.runAsync(
-                      "UPDATE product_data SET quantity = ?, cost = ? WHERE barcode = ?",
-                      [item.quantity, finalCost, item.barcode]
+                  await runInQueue(async () => {
+                    const productExists = await db.getFirstAsync(
+                      "SELECT 1 FROM product_data WHERE barcode = ?",
+                      [item.barcode]
                     );
-                    console.log(`✅ Updated product_data for: ${item.barcode}`);
-                  }
+                    
+                    if (productExists) {
+                      await db.runAsync(
+                        "UPDATE product_data SET quantity = ? WHERE barcode = ?",
+                        [quantityToSave, item.barcode]
+                      );
+                      console.log(`[UPDATE] Updated product_data for: ${item.barcode}`);
+                    }
+                  });
                   
                   successCount++;
-                  console.log(`✅ Successfully processed: ${item.barcode}`);
+                  console.log(`[SUCCESS] Successfully processed: ${item.barcode}`);
                   
                 } catch (itemError) {
-                  console.error(`❌ Error processing item ${item.barcode}:`, itemError);
+                  console.error(`[ERROR] Error processing item ${item.barcode}:`, itemError);
                   errorCount++;
                 }
               }
               
-              // Clear pending items after successful processing
               if (successCount > 0) {
-                await db.runAsync("DELETE FROM pending_items");
-                console.log(`🧹 Cleared ${successCount} pending items`);
+                await runInQueue(async () => {
+                  await db.runAsync("DELETE FROM pending_items");
+                  console.log(`[CLEAN] Cleared ${successCount} pending items`);
+                });
               }
 
               if (errorCount === 0) {
-                Alert.alert("✅ Success", `All ${successCount} entries saved for sync!`);
+                Alert.alert("Success", `All ${successCount} stock counts saved for sync!`);
                 setScannedItems([]);
                 router.push("/(main)/");
               } else if (successCount > 0) {
-                Alert.alert("⚠️ Partial Success", 
-                  `${successCount} entries saved for sync, but ${errorCount} failed. The successful entries have been cleared.`);
-                await loadPendingItems(); // Reload to show only failed items
+                Alert.alert("Partial Success", 
+                  `${successCount} counts saved for sync, but ${errorCount} failed. The successful entries have been cleared.`);
+                await loadPendingItems();
               } else {
-                Alert.alert("❌ Error", "Failed to save any entries. Please try again.");
+                Alert.alert("Error", "Failed to save any stock counts. Please try again.");
               }
             } catch (err) {
-              console.error("💥 Save failed:", err);
-              Alert.alert("Error", "Failed to save entries.");
+              console.error("[ERROR] Save failed:", err);
+              Alert.alert("Error", "Failed to save stock counts.");
             }
           }
         }
@@ -1222,10 +1561,6 @@ export default function BarcodeEntry() {
             <Text style={styles.detailChipLabel}>Stock:</Text>
             <Text style={styles.detailChipValue}>{Math.abs(item.quantity || 0)}</Text>
           </View>
-          <View style={styles.detailChip}>
-            <Text style={styles.detailChipLabel}>MRP:</Text>
-            <Text style={styles.detailChipValue}>₹{item.bmrp || 0}</Text>
-          </View>
           {item.barcode && (
             <View style={styles.detailChip}>
               <Text style={styles.detailChipValue} numberOfLines={1}>{item.barcode}</Text>
@@ -1239,6 +1574,42 @@ export default function BarcodeEntry() {
 
   const getCardStyle = (item: any, index: number) => {
     return index === 0 ? styles.latestProductCard : styles.regularProductCard;
+  };
+
+  const getLimitIndicatorStyle = () => {
+    if (scannedItems.length >= MAX_ITEMS_LIMIT) {
+      return {
+        backgroundColor: '#FEE2E2',
+        borderColor: '#EF4444',
+      };
+    } else if (scannedItems.length >= MAX_ITEMS_LIMIT * 0.8) {
+      return {
+        backgroundColor: '#FEF3C7',
+        borderColor: '#F59E0B',
+      };
+    }
+    return {
+      backgroundColor: '#E0E7FF',
+      borderColor: '#801b90ff',
+    };
+  };
+
+  const getLimitIndicatorTextStyle = () => {
+    if (scannedItems.length >= MAX_ITEMS_LIMIT) {
+      return { color: '#DC2626' };
+    } else if (scannedItems.length >= MAX_ITEMS_LIMIT * 0.8) {
+      return { color: '#D97706' };
+    }
+    return { color: '#801b90ff' };
+  };
+
+  const getLimitIndicatorText = () => {
+    if (scannedItems.length >= MAX_ITEMS_LIMIT) {
+      return `Limit Reached: ${scannedItems.length}/${MAX_ITEMS_LIMIT} items`;
+    } else if (scannedItems.length >= MAX_ITEMS_LIMIT * 0.8) {
+      return `${scannedItems.length}/${MAX_ITEMS_LIMIT} items (${MAX_ITEMS_LIMIT - scannedItems.length} remaining)`;
+    }
+    return `${scannedItems.length}/${MAX_ITEMS_LIMIT} items`;
   };
 
   return (
@@ -1321,8 +1692,27 @@ export default function BarcodeEntry() {
 
       <View style={styles.header}>
         <Text style={styles.pageTitle}>
-          Barcode Entry
+          Stock Taking
         </Text>
+        
+        <View style={[styles.limitIndicator, getLimitIndicatorStyle()]}>
+          <Text style={[styles.limitIndicatorText, getLimitIndicatorTextStyle()]}>
+            {getLimitIndicatorText()}
+          </Text>
+        </View>
+
+        {/* NEW: Zero quantity warning indicator */}
+        {hasZeroQuantityItems() && (
+          <View style={[styles.limitIndicator, {
+            backgroundColor: '#FEF3C7',
+            borderColor: '#F59E0B',
+            marginBottom: 12,
+          }]}>
+            <Text style={[styles.limitIndicatorText, { color: '#D97706' }]}>
+              ⚠️ {getZeroQuantityItemsInfo().count} item(s) need quantity set
+            </Text>
+          </View>
+        )}
 
         <View style={styles.toggleContainer}>
           <TouchableOpacity
@@ -1408,7 +1798,12 @@ export default function BarcodeEntry() {
         <ScrollView style={styles.scrollView}>
           <View style={styles.content}>
             <Text style={styles.sectionTitle}>
-              Scanned Products ({scannedItems.length})
+              Counted Products ({scannedItems.length})
+              {hasZeroQuantityItems() && (
+                <Text style={{ color: '#F59E0B', fontSize: 14 }}>
+                  {' '}({getZeroQuantityItemsInfo().count} need quantity)
+                </Text>
+              )}
             </Text>
 
             {scannedItems.length === 0 && (
@@ -1417,78 +1812,130 @@ export default function BarcodeEntry() {
               </Text>
             )}
 
-            {scannedItems.map((item, index) => (
-              <View
-                key={`${item.barcode}-${index}-${item.scannedAt}`}
+            {scannedItems.map((item, index) => {
+              const hasZeroQuantity = (item.countedQuantity || 0) === 0 || isNaN(item.countedQuantity);
+              
+              return (
+                <View
+                  key={`${item.barcode}-${index}-${item.scannedAt}`}
+                  style={[
+                    styles.productCard,
+                    getCardStyle(item, index),
+                    hasZeroQuantity && {
+                      borderColor: '#F59E0B',
+                      borderWidth: 2,
+                      backgroundColor: '#FFFBEB',
+                    }
+                  ]}
+                >
+                  {hasZeroQuantity && (
+                    <View style={{
+                      position: 'absolute',
+                      top: -8,
+                      right: 8,
+                      backgroundColor: '#F59E0B',
+                      paddingHorizontal: 8,
+                      paddingVertical: 2,
+                      borderRadius: 12,
+                    }}>
+                      <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>
+                        NEEDS QTY
+                      </Text>
+                    </View>
+                  )}
+                  
+                  <View style={styles.productHeader}>
+                    <View style={styles.productInfo}>
+                      <Text style={styles.productName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <Text style={styles.productBarcode}>{item.barcode}</Text>
+                    </View>
+                    <View style={styles.actionButtons}>
+                      <TouchableOpacity
+                        onPress={() => handleEditItem(item, index)}
+                        style={styles.editButton}
+                      >
+                        <Ionicons name="create-outline" size={14} color="white" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => handleDeleteItem(index)}
+                        style={styles.deleteButton}
+                      >
+                        <Ionicons name="trash-outline" size={14} color="white" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <View style={styles.productDetails}>
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailText}>
+                        Current Stock: <Text style={styles.currentStockText}>{item.currentStock || 0}</Text>
+                      </Text>
+                    </View>
+
+                    <View style={styles.countedQtyRow}>
+                      <Text style={styles.countedQtyLabel}>Counted Qty:</Text>
+                      <View style={styles.quantityControls}>
+                        <TouchableOpacity
+                          style={[
+                            styles.quantityButton,
+                            (item.countedQuantity || 0) <= 0 && styles.quantityButtonDisabled
+                          ]}
+                          onPress={() => handleQuantityChange(index, -1)}
+                          disabled={(item.countedQuantity || 0) <= 0}
+                        >
+                          <Ionicons name="remove" size={20} color="#801b90ff" />
+                        </TouchableOpacity>
+                        
+                        <Text style={[
+                          styles.countedQtyText,
+                          hasZeroQuantity && { color: '#F59E0B' }
+                        ]}>{item.countedQuantity || 0}</Text>
+                        
+                        <TouchableOpacity
+                          style={styles.quantityButton}
+                          onPress={() => handleQuantityChange(index, 1)}
+                        >
+                          <Ionicons name="add" size={20} color="#801b90ff" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 24 }}>
+              <TouchableOpacity
                 style={[
-                  styles.productCard,
-                  getCardStyle(item, index)
+                  styles.saveButton,
+                  { flex: 1, marginTop: 0 },
+                  scannedItems.length > 0 ? styles.saveButtonActive : styles.saveButtonInactive
                 ]}
+                disabled={scannedItems.length === 0}
+                onPress={updateStockCounts}
               >
-                <View style={styles.productHeader}>
-                  <View style={styles.productInfo}>
-                    <Text style={styles.productName} numberOfLines={1}>
-                      {item.name}
-                    </Text>
-                    <Text style={styles.productBarcode}>{item.barcode}</Text>
-                  </View>
-                  <View style={styles.actionButtons}>
-                    <TouchableOpacity
-                      onPress={() => handleEditItem(item, index)}
-                      style={styles.editButton}
-                    >
-                      <Ionicons name="create-outline" size={14} color="white" />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => handleDeleteItem(index)}
-                      style={styles.deleteButton}
-                    >
-                      <Ionicons name="trash-outline" size={14} color="white" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
+                <Text style={styles.saveButtonText}>
+                  Save Stock Count ({scannedItems.length} items)
+                </Text>
+              </TouchableOpacity>
 
-                <View style={styles.productDetails}>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailText}>
-                      MRP: <Text style={styles.mrpText}>₹{item.bmrp || 0}</Text>
-                    </Text>
-                    <Text style={styles.detailText}>
-                      Cost: <Text style={styles.costText}>₹{item.cost || 0}</Text>
-                    </Text>
-                    <Text style={styles.detailText}>
-                      Stock: <Text style={styles.stockText}>{item.currentStock}</Text>
-                    </Text>
-                  </View>
-
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailText}>
-                      E.Qty: <Text style={styles.eQtyText}>{item.quantity}</Text>
-                    </Text>
-                    <Text style={styles.detailText}>
-                      E.Cost: <Text style={styles.eCostText}>₹{item.eCost || 0}</Text>
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            ))}
-
-            <TouchableOpacity
-              style={[
-                styles.saveButton,
-                scannedItems.length > 0 ? styles.saveButtonActive : styles.saveButtonInactive
-              ]}
-              disabled={scannedItems.length === 0}
-              onPress={updateQuantities}
-            >
-              <Text style={styles.saveButtonText}>
-                Update Quantities ({scannedItems.length} items)
-              </Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.saveButton,
+                  { flex: 0, paddingHorizontal: 24, marginTop: 0 },
+                  styles.saveButtonActive
+                ]}
+                onPress={handleOpenScanner}
+              >
+                <Ionicons name="barcode-outline" size={24} color="#ffffff" />
+              </TouchableOpacity>
+            </View>
 
             <View style={styles.footer}>
               <Text style={styles.footerText}>
-                Powered by IMC Business Solutions
+                Powered by IMCB Solutions LLP
               </Text>
             </View>
           </View>

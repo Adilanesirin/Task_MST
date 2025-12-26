@@ -1,25 +1,249 @@
 import { createEnhancedAPI } from "@/utils/api";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Application from "expo-application";
 import { router } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, PermissionsAndroid, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import Toast from "react-native-toast-message";
 
 export default function Settings() {
   const [mode, setMode] = useState<"hardware" | "camera">("hardware");
   const [pinging, setPinging] = useState(false);
   const [pingStatus, setPingStatus] = useState<"success" | "failed" | null>(null);
+  const [removingLicense, setRemovingLicense] = useState(false);
+  const [licenseInfo, setLicenseInfo] = useState<{
+    customerName: string;
+    licenseKey: string;
+    deviceId: string;
+    expiryDate?: string;
+    remainingDays?: number;
+    isExpired?: boolean;
+  } | null>(null);
+  const [loadingExpiry, setLoadingExpiry] = useState(false);
+
+  const requestAndroidPermissions = async () => {
+    if (Platform.OS !== 'android') {
+      return true;
+    }
+
+    try {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE,
+        {
+          title: "Device ID Permission",
+          message: "This app needs access to your device ID for license management.",
+          buttonNeutral: "Ask Me Later",
+          buttonNegative: "Cancel",
+          buttonPositive: "OK"
+        }
+      );
+
+      if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+        console.log("✅ Phone state permission granted");
+        return true;
+      } else {
+        console.log("❌ Phone state permission denied");
+        return false;
+      }
+    } catch (err) {
+      console.warn("Permission request error:", err);
+      return false;
+    }
+  };
+
+  const getDeviceId = async () => {
+    try {
+      let id = null;
+      
+      if (Platform.OS === "android") {
+        const hasPermission = await requestAndroidPermissions();
+        
+        if (!hasPermission) {
+          throw new Error("Permission denied. Please grant phone state permission.");
+        }
+
+        // Method 1: Application.androidId
+        id = Application.androidId;
+        console.log("Method 1 - Application.androidId:", id);
+        
+        if (id && id !== "null" && id !== "" && id !== "unknown") {
+          console.log("✅ Using Application.androidId:", id);
+          await AsyncStorage.setItem("device_hardware_id", id);
+          return id;
+        }
+
+        // Method 2: Try getting from native module directly
+        if (Application.getAndroidId) {
+          try {
+            id = await Application.getAndroidId();
+            console.log("Method 2 - Application.getAndroidId():", id);
+            
+            if (id && id !== "null" && id !== "" && id !== "unknown") {
+              console.log("✅ Using Application.getAndroidId():", id);
+              await AsyncStorage.setItem("device_hardware_id", id);
+              return id;
+            }
+          } catch (e) {
+            console.log("Method 2 failed:", e);
+          }
+        }
+
+        // Method 3: Check stored device ID
+        const storedId = await AsyncStorage.getItem("device_hardware_id");
+        if (storedId) {
+          console.log("✅ Using stored device ID:", storedId);
+          return storedId;
+        }
+
+        // Generate persistent UUID
+        console.log("⚠️ Android ID not available, generating persistent UUID");
+        const uuid = 'xxxxxxxxxxxxxxxx'.replace(/[x]/g, function(c) {
+          const r = Math.random() * 16 | 0;
+          return r.toString(16);
+        });
+        
+        await AsyncStorage.setItem("device_hardware_id", uuid);
+        console.log("✅ Generated and stored UUID:", uuid);
+        return uuid;
+        
+      } else if (Platform.OS === "ios") {
+        id = await Application.getIosIdForVendorAsync();
+        
+        console.log("iOS IDFV from Application:", id);
+        
+        if (id && id !== "null" && id !== "") {
+          console.log("✅ Using iOS IDFV:", id);
+          await AsyncStorage.setItem("device_hardware_id", id);
+          return id;
+        }
+
+        const storedId = await AsyncStorage.getItem("device_hardware_id");
+        if (storedId) {
+          console.log("✅ Using stored iOS device ID:", storedId);
+          return storedId;
+        }
+
+        const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          const r = Math.random() * 16 | 0;
+          const v = c === 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+        
+        await AsyncStorage.setItem("device_hardware_id", uuid);
+        console.log("✅ Generated and stored iOS UUID:", uuid);
+        return uuid;
+        
+      } else {
+        throw new Error("Unsupported platform: " + Platform.OS);
+      }
+      
+    } catch (error) {
+      console.error("❌ CRITICAL ERROR getting device ID:", error);
+      
+      try {
+        const storedId = await AsyncStorage.getItem("device_hardware_id");
+        if (storedId) {
+          console.log("Using emergency stored device ID");
+          return storedId;
+        }
+      } catch (e) {
+        console.error("Storage error:", e);
+      }
+      
+      throw error;
+    }
+  };
 
   useEffect(() => {
-    const loadSetting = async () => {
+    const loadSettings = async () => {
+      // Load scan mode
       const saved = await SecureStore.getItemAsync("scanMode");
       if (saved === "camera" || saved === "hardware") {
         setMode(saved);
       }
+
+      // Load license info using the robust device ID fetching
+      const customerName = await AsyncStorage.getItem("customerName");
+      const licenseKey = await AsyncStorage.getItem("licenseKey");
+      
+      // Get device ID using the robust method
+      let deviceId: string | null = null;
+      try {
+        deviceId = await getDeviceId();
+        console.log("Settings - Retrieved device ID:", deviceId);
+      } catch (error) {
+        console.error("Settings - Failed to get device ID:", error);
+        // Fallback to stored deviceId if available
+        deviceId = await AsyncStorage.getItem("deviceId");
+      }
+
+      if (customerName && licenseKey && deviceId) {
+        setLicenseInfo({ customerName, licenseKey, deviceId });
+        // Fetch expiry date after setting basic info
+        fetchLicenseExpiry(licenseKey);
+      }
     };
-    loadSetting();
+    loadSettings();
   }, []);
+
+  const fetchLicenseExpiry = async (licenseKey: string) => {
+    setLoadingExpiry(true);
+    try {
+      const response = await fetch("https://activate.imcbs.com/mobileapp/api/project/taskmst/", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (data.success && data.customers) {
+          // Find the customer with matching license key
+          const customer = data.customers.find(
+            (c: any) => c.license_key === licenseKey
+          );
+
+          if (customer && customer.license_validity) {
+            setLicenseInfo(prev => prev ? {
+              ...prev,
+              expiryDate: customer.license_validity.expiry_date,
+              remainingDays: customer.license_validity.remaining_days,
+              isExpired: customer.license_validity.is_expired,
+            } : null);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch license expiry:", error);
+    } finally {
+      setLoadingExpiry(false);
+    }
+  };
+
+  const formatExpiryDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+  };
+
+  const getExpiryStatus = () => {
+    if (!licenseInfo?.remainingDays) return null;
+    
+    if (licenseInfo.isExpired) {
+      return { color: '#DC2626', text: 'Expired', icon: 'close-circle' };
+    } else if (licenseInfo.remainingDays <= 30) {
+      return { color: '#F59E0B', text: `Expires in ${licenseInfo.remainingDays} days`, icon: 'warning' };
+    } else {
+      return { color: '#10B981', text: `${licenseInfo.remainingDays} days remaining`, icon: 'checkmark-circle' };
+    }
+  };
 
   const saveSetting = async (selected: "hardware" | "camera") => {
     await SecureStore.setItemAsync("scanMode", selected);
@@ -28,23 +252,18 @@ export default function Settings() {
 
   const handlePingServer = async () => {
     setPinging(true);
-    setPingStatus(null); // Reset status
+    setPingStatus(null);
     try {
       const api = await createEnhancedAPI();
       const startTime = Date.now();
       
-      // Test server connectivity by making a simple request
-      // We'll try to hit the login endpoint with an OPTIONS request first (if supported)
-      // or make a minimal request to see if server responds
       let response;
       
       try {
-        // Method 1: Try a basic GET to root path
         console.log("🔍 Testing server connectivity...");
         response = await api.get("/", {
           timeout: 10000,
           validateStatus: function (status) {
-            // Accept any response (even 404) as long as server responds
             return status < 500;
           }
         });
@@ -52,15 +271,11 @@ export default function Settings() {
         console.log(`📡 Server responded with status: ${response.status}`);
         
       } catch (error: any) {
-        // Method 2: If GET fails, try making a test POST to login without credentials
-        // This will fail authentication but proves server is reachable
         try {
           console.log("🔍 Testing with login endpoint...");
           response = await api.post("/login", {}, {
             timeout: 10000,
             validateStatus: function (status) {
-              // Accept 400 (bad request) or 401 (unauthorized) as valid responses
-              // These indicate server is working but rejecting our request
               return status === 400 || status === 401 || (status >= 200 && status < 300);
             }
           });
@@ -68,7 +283,6 @@ export default function Settings() {
           console.log(`📡 Login endpoint responded with status: ${response.status}`);
           
         } catch (loginError: any) {
-          // If both methods fail, server is likely unreachable
           throw loginError;
         }
       }
@@ -76,7 +290,6 @@ export default function Settings() {
       const endTime = Date.now();
       const responseTime = endTime - startTime;
       
-      // Consider it successful if server responded (even with 4xx errors)
       if (response && response.status < 500) {
         setPingStatus("success");
         console.log("🎉 Server is reachable!");
@@ -107,7 +320,6 @@ export default function Settings() {
         if (error.response.status >= 500) {
           errorMessage = `Server error: ${error.response.status}`;
         } else {
-          // 4xx errors mean server is reachable but request was invalid
           errorMessage = "Server authentication required";
         }
       } else if (error.request) {
@@ -125,6 +337,165 @@ export default function Settings() {
     }
   };
 
+  const handleRemoveLicense = () => {
+    if (!licenseInfo) {
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: "No license information found",
+      });
+      return;
+    }
+
+    Alert.alert(
+      "Remove License",
+      `Are you sure you want to deactivate this device from license?\n\nCustomer: ${licenseInfo.customerName}\n\nThis will log you out and you'll need to activate again.`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: confirmRemoveLicense
+        }
+      ]
+    );
+  };
+
+  const confirmRemoveLicense = async () => {
+    if (!licenseInfo) return;
+
+    setRemovingLicense(true);
+
+    try {
+      console.log("🗑️ Removing license...");
+      console.log("License Key:", licenseInfo.licenseKey);
+      console.log("Device ID:", licenseInfo.deviceId);
+
+      const LOGOUT_API = `https://activate.imcbs.com/mobileapp/api/project/taskmst/logout/`;
+
+      const response = await fetch(LOGOUT_API, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          license_key: licenseInfo.licenseKey,
+          device_id: licenseInfo.deviceId,
+        }),
+      });
+
+      const responseText = await response.text();
+      console.log("Raw response:", responseText);
+
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error("JSON parse error:", parseError);
+        Toast.show({
+          type: "error",
+          text1: "Server Error",
+          text2: "Invalid response from server",
+        });
+        setRemovingLicense(false);
+        return;
+      }
+
+      console.log("Logout response:", data);
+
+      if (response.ok && data.success) {
+        console.log("✅ License removed successfully");
+
+        // Clear all stored data including device_hardware_id
+        await AsyncStorage.multiRemove([
+          "licenseActivated",
+          "licenseKey",
+          "deviceId",
+          "device_hardware_id",
+          "customerName",
+          "projectName",
+          "clientId",
+        ]);
+
+        // Also clear auth tokens
+        await SecureStore.deleteItemAsync("authToken");
+        await SecureStore.deleteItemAsync("userId");
+
+        Toast.show({
+          type: "success",
+          text1: "License Removed",
+          text2: "Device has been deactivated successfully",
+        });
+
+        // Redirect to license activation screen after a short delay
+        setTimeout(() => {
+          router.replace("/(auth)/license");
+        }, 1500);
+      } else {
+        const errorMessage =
+          data.message ||
+          data.error ||
+          data.detail ||
+          "Failed to remove license";
+
+        console.error("License removal failed:", errorMessage);
+
+        Toast.show({
+          type: "error",
+          text1: "Removal Failed",
+          text2: errorMessage,
+        });
+      }
+    } catch (error: any) {
+      console.error("💥 License removal error:", error);
+
+      let errorMessage = "Network error. Please check your connection.";
+
+      if (error.message) {
+        errorMessage = `Error: ${error.message}`;
+      }
+
+      if (
+        error.name === "TypeError" &&
+        error.message.includes("Network request failed")
+      ) {
+        errorMessage = "Cannot connect to server. Check your internet connection.";
+      }
+
+      Toast.show({
+        type: "error",
+        text1: "Connection Error",
+        text2: errorMessage,
+      });
+    } finally {
+      setRemovingLicense(false);
+    }
+  };
+
+  const getDeviceType = () => {
+    if (Platform.OS === 'android') {
+      return 'Android ID';
+    } else if (Platform.OS === 'ios') {
+      return 'iOS IDFV (UUID)';
+    }
+    return 'Device ID';
+  };
+
+  const formatDeviceId = (deviceId: string) => {
+    if (Platform.OS === 'android') {
+      // Format as hex: show first 8 chars
+      return deviceId.length > 8 ? `${deviceId.substring(0, 8)}...` : deviceId;
+    } else if (Platform.OS === 'ios') {
+      // Format UUID: show first section
+      const parts = deviceId.split('-');
+      return parts.length > 0 ? `${parts[0]}-...` : deviceId;
+    }
+    return deviceId.substring(0, 20) + '...';
+  };
+
   return (
     <View style={styles.container}>
       {/* Back Button */}
@@ -135,9 +506,10 @@ export default function Settings() {
         <Ionicons name="arrow-back" size={24} color="#801b90ff" />
       </TouchableOpacity>
 
-      <View style={styles.content}>
-       
-
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Scan Mode Settings */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Scan Mode</Text>
@@ -208,7 +580,6 @@ export default function Settings() {
 
         {/* Server Status */}
         <View style={styles.card}>
-          {/* Status Indicator Circle - Enhanced */}
           {(pingStatus || pinging) && (
             <View style={[
               styles.statusIndicator,
@@ -257,13 +628,112 @@ export default function Settings() {
           </TouchableOpacity>
         </View>
 
+        {/* License Management */}
+        {licenseInfo && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>License Management</Text>
+            <Text style={styles.cardSubtitle}>
+              Manage your device license activation
+            </Text>
+
+            {/* License Info Display */}
+            <View style={styles.licenseInfoBox}>
+              <View style={styles.licenseInfoRow}>
+                <Ionicons name="person-outline" size={18} color="#6B7280" />
+                <Text style={styles.licenseInfoLabel}>Customer:</Text>
+                <Text style={styles.licenseInfoValue}>{licenseInfo.customerName}</Text>
+              </View>
+              <View style={styles.licenseInfoRow}>
+                <Ionicons name="key-outline" size={18} color="#6B7280" />
+                <Text style={styles.licenseInfoLabel}>License:</Text>
+                <Text style={styles.licenseInfoValue} numberOfLines={1}>
+                  {licenseInfo.licenseKey}
+                </Text>
+              </View>
+              <View style={styles.licenseInfoRow}>
+                <Ionicons name="phone-portrait-outline" size={18} color="#6B7280" />
+                <Text style={styles.licenseInfoLabel}>Device ID:</Text>
+                <Text style={styles.licenseInfoValue} numberOfLines={1}>
+                  {formatDeviceId(licenseInfo.deviceId)}
+                </Text>
+              </View>
+              <View style={styles.licenseInfoRow}>
+                <Ionicons name="information-circle-outline" size={18} color="#6B7280" />
+                <Text style={styles.licenseInfoLabel}>Type:</Text>
+                <Text style={styles.licenseInfoValue}>
+                  {getDeviceType()}
+                </Text>
+              </View>
+              
+              {/* License Expiry Information */}
+              {loadingExpiry ? (
+                <View style={styles.licenseInfoRow}>
+                  <ActivityIndicator size="small" color="#801b90ff" />
+                  <Text style={styles.licenseInfoLabel}>Loading expiry...</Text>
+                </View>
+              ) : licenseInfo.expiryDate ? (
+                <>
+                  <View style={styles.licenseInfoRow}>
+                    <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+                    <Text style={styles.licenseInfoLabel}>Expires:</Text>
+                    <Text style={styles.licenseInfoValue}>
+                      {formatExpiryDate(licenseInfo.expiryDate)}
+                    </Text>
+                  </View>
+                  {getExpiryStatus() && (
+                    <View style={[styles.expiryStatusBadge, { backgroundColor: getExpiryStatus()!.color + '15' }]}>
+                      <Ionicons 
+                        name={getExpiryStatus()!.icon as any} 
+                        size={16} 
+                        color={getExpiryStatus()!.color} 
+                      />
+                      <Text style={[styles.expiryStatusText, { color: getExpiryStatus()!.color }]}>
+                        {getExpiryStatus()!.text}
+                      </Text>
+                    </View>
+                  )}
+                </>
+              ) : null}
+            </View>
+
+            {/* Remove License Button */}
+            <TouchableOpacity
+              style={[
+                styles.removeButton,
+                removingLicense && styles.removeButtonDisabled
+              ]}
+              onPress={handleRemoveLicense}
+              disabled={removingLicense}
+            >
+              {removingLicense ? (
+                <>
+                  <ActivityIndicator size="small" color="#DC2626" />
+                  <Text style={styles.removeButtonText}>Removing...</Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons name="trash-outline" size={20} color="#DC2626" />
+                  <Text style={styles.removeButtonText}>Remove License</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <Text style={styles.warningText}>
+              ⚠️ Removing license will deactivate this device and log you out
+            </Text>
+          </View>
+        )}
+
         {/* Footer */}
         <View style={styles.footer}>
           <Text style={styles.footerText}>
-            Powered by IMC Business Solutions
+            Powered by IMCB Solution LLP
+          </Text>
+          <Text style={[styles.footerText, { fontSize: 11, marginTop: 4 }]}>
+            Device ID persists across app updates
           </Text>
         </View>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -272,7 +742,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#FAFAFA",
-    padding: 24,
   },
   backButton: {
     position: "absolute",
@@ -288,29 +757,11 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-  content: {
-    flex: 1,
-    justifyContent: "center",
+  scrollContent: {
+    paddingHorizontal: 24,
+    paddingTop: 100,
+    paddingBottom: 40,
     gap: 30,
-    paddingTop: 60,
-  },
-  header: {
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  title: {
-    fontSize: 30,
-    fontWeight: "bold",
-    marginTop: 16,
-    textAlign: "center",
-    color: "#111827",
-  },
-  subtitle: {
-    fontSize: 16,
-    color: "#6B7280",
-    marginTop: 8,
-    textAlign: "center",
-    paddingHorizontal: 16,
   },
   card: {
     backgroundColor: "white",
@@ -422,10 +873,76 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#801b90ff",
   },
+  licenseInfoBox: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  licenseInfoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+    gap: 8,
+  },
+  licenseInfoLabel: {
+    fontSize: 14,
+    color: "#6B7280",
+    fontWeight: "500",
+    minWidth: 80,
+  },
+  licenseInfoValue: {
+    fontSize: 14,
+    color: "#111827",
+    fontWeight: "600",
+    flex: 1,
+  },
+  expiryStatusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 10,
+    borderRadius: 8,
+    marginTop: 4,
+    gap: 6,
+  },
+  expiryStatusText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  removeButton: {
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  removeButtonDisabled: {
+    backgroundColor: "#F9FAFB",
+    borderColor: "#E5E7EB",
+  },
+  removeButtonText: {
+    marginLeft: 8,
+    fontWeight: "600",
+    color: "#DC2626",
+    fontSize: 16,
+  },
+  warningText: {
+    fontSize: 12,
+    color: "#F59E0B",
+    textAlign: "center",
+    fontStyle: "italic",
+  },
   footer: {
     alignItems: "center",
-    marginTop: 32,
-    
+    marginTop: 20,
+    paddingVertical: 20,
   },
   footerText: {
     fontSize: 13,

@@ -33,7 +33,7 @@ export default function HomeScreen() {
             await logout();
             await clearPairing();
             await deleteUserid();
-            router.replace("/(auth)/pairing");
+            router.replace("/(auth)/login");
             Toast.show({
               type: "success",
               text1: "Logged out successfully",
@@ -134,7 +134,7 @@ export default function HomeScreen() {
                     <Ionicons name="document-text-outline" size={24} color="#ffffffff" />
                   </View>
                   <View style={styles.flatCardText}>
-                    <Text style={styles.flatCardTitle}>Orders</Text>
+                    <Text style={styles.flatCardTitle}>Stock Taking</Text>
                     <Text style={styles.flatCardDescription}>Manage & process orders</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={16} color="#7E57C2" />
