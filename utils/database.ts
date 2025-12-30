@@ -47,8 +47,7 @@ export const initDatabase = async () => {
       console.log("📋 Table might not exist yet, will create it");
     }
 
-    // ✅ FIX: Remove withTransactionAsync wrapper
-    // execAsync handles transactions internally
+    // ✅ Create all tables including stock_count
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS master_data (
         code TEXT PRIMARY KEY NOT NULL,
@@ -81,6 +80,17 @@ export const initDatabase = async () => {
         FOREIGN KEY (barcode) REFERENCES product_data (barcode)
       );
 
+      CREATE TABLE IF NOT EXISTS stock_count (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_name TEXT NOT NULL,
+        barcode TEXT NOT NULL,
+        quantity INTEGER NOT NULL DEFAULT 0,
+        count_date TEXT NOT NULL,
+        userid TEXT NOT NULL,
+        sync_status TEXT DEFAULT 'pending',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE IF NOT EXISTS sync_info (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         last_synced TEXT
@@ -102,7 +112,7 @@ export const initDatabase = async () => {
       }
     }
 
-    console.log("✅ Database initialized successfully.");
+    console.log("✅ Database initialized successfully with all tables.");
   } catch (err) {
     console.error("❌ Error initializing DB:", err);
     
@@ -273,6 +283,57 @@ export const saveOrderToSync = async (order: {
     console.log("✅ Order saved for sync");
   } catch (err) {
     console.error("❌ Error saving order to sync:", err);
+    throw err;
+  }
+};
+
+// 🆕 Stock count helper functions
+export const saveStockCount = async (stockCount: {
+  product_name: string;
+  barcode: string;
+  quantity: number;
+  count_date: string;
+  userid: string;
+}) => {
+  const db = getDatabase();
+  try {
+    await db.runAsync(
+      'INSERT INTO stock_count (product_name, barcode, quantity, count_date, userid) VALUES (?, ?, ?, ?, ?)',
+      [stockCount.product_name, stockCount.barcode, stockCount.quantity, stockCount.count_date, stockCount.userid]
+    );
+    console.log("✅ Stock count saved");
+  } catch (err) {
+    console.error("❌ Error saving stock count:", err);
+    throw err;
+  }
+};
+
+export const getPendingStockCounts = async () => {
+  const db = getDatabase();
+  try {
+    const result = await db.getAllAsync(
+      'SELECT * FROM stock_count WHERE sync_status = ? ORDER BY created_at',
+      ['pending']
+    );
+    console.log(`✅ Retrieved ${result.length} pending stock counts`);
+    return result;
+  } catch (err) {
+    console.error("❌ Error fetching pending stock counts:", err);
+    return [];
+  }
+};
+
+export const markStockCountsAsSynced = async () => {
+  const db = getDatabase();
+  try {
+    const result = await db.runAsync(
+      'UPDATE stock_count SET sync_status = ? WHERE sync_status = ?',
+      ['synced', 'pending']
+    );
+    console.log("✅ Stock counts marked as synced");
+    return result.changes;
+  } catch (err) {
+    console.error("❌ Error marking stock counts as synced:", err);
     throw err;
   }
 };

@@ -1,4 +1,4 @@
-// utils/sync.ts - COMPLETE CODE FOR MST (Stock Taking)
+// utils/sync.ts - COMPLETE CORRECTED CODE FOR MST (Stock Taking)
 import * as SQLite from "expo-sqlite";
 
 const db = SQLite.openDatabaseSync("magicpedia.db");
@@ -23,47 +23,227 @@ interface StockCountRow {
   batch_supplier: string | null;
 }
 
-// Save master data
+// ✅ FIXED: Save master data using UPSERT to prevent data loss
 export const saveMasterData = async (data: any[]) => {
   try {
+    console.log(`💾 Starting to save ${data.length} master records...`);
+    
     await db.withTransactionAsync(async () => {
       for (const item of data) {
+        // Use UPSERT instead of INSERT OR REPLACE
         await db.runAsync(
-          'INSERT OR REPLACE INTO master_data (code, name, place) VALUES (?, ?, ?)',
+          `INSERT INTO master_data (code, name, place) 
+           VALUES (?, ?, ?)
+           ON CONFLICT(code) DO UPDATE SET
+             name = excluded.name,
+             place = excluded.place`,
           [item.code, item.name, item.place || null]
         );
       }
     });
+    
+    // Verify the count after saving
+    const verifyResult = await db.getFirstAsync(
+      'SELECT COUNT(*) as count FROM master_data'
+    ) as {count: number};
+    
     console.log(`✅ Saved ${data.length} master records`);
+    console.log(`📊 Total masters in database: ${verifyResult.count}`);
+    
+    if (verifyResult.count < data.length) {
+      console.warn(`⚠️ WARNING: Expected at least ${data.length} masters but database has ${verifyResult.count}`);
+    }
+    
   } catch (error) {
     console.error("❌ Error saving master data:", error);
     throw error;
   }
 };
 
-// Save product data
+// 🔥 FIXED: Save product data handling null barcodes properly
 export const saveProductData = async (data: any[]) => {
   try {
+    console.log(`💾 Starting to save ${data.length} product records...`);
+    
+    // First, get the count before saving
+    const beforeResult = await db.getFirstAsync(
+      'SELECT COUNT(*) as count FROM product_data'
+    ) as {count: number};
+    console.log(`📊 Products before save: ${beforeResult.count}`);
+    
+    let savedCount = 0;
+    let skippedCount = 0;
+    const errors: any[] = [];
+    
     await db.withTransactionAsync(async () => {
-      for (const item of data) {
-        await db.runAsync(
-          'INSERT OR REPLACE INTO product_data (code, name, barcode, quantity, salesprice, bmrp, cost, batch_supplier) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-          [
-            item.code || item.product_code,
-            item.name || item.product_name,
-            item.barcode,
-            item.quantity || item.stock || 0,
-            item.salesprice || item.selling_price || 0,
-            item.bmrp || item.mrp || 0,
-            item.cost || item.purchase_price || 0,
-            item.batch_supplier || item.supplier || null
-          ]
-        );
+      for (let i = 0; i < data.length; i++) {
+        const item = data[i];
+        
+        try {
+          const code = item.code || item.product_code;
+          let barcode = item.barcode;
+          const batchSupplier = item.batch_supplier || item.supplier || null;
+          
+          // 🔥 FIX: Handle null barcodes by using code as fallback
+          if (!barcode || barcode === null || barcode === '') {
+            if (code) {
+              barcode = `CODE_${code}`;
+              console.log(`⚠️ Product ${i + 1}: Null barcode detected, using CODE_${code}`);
+            } else {
+              console.warn(`⚠️ Skipping product ${i + 1}: Missing both code and barcode`, item);
+              skippedCount++;
+              continue;
+            }
+          }
+          
+          if (!code) {
+            console.warn(`⚠️ Skipping product ${i + 1}: Missing code`, item);
+            skippedCount++;
+            continue;
+          }
+          
+          // Use UPSERT (INSERT ... ON CONFLICT DO UPDATE) 
+          await db.runAsync(
+            `INSERT INTO product_data (
+              code, name, barcode, quantity, salesprice, bmrp, cost, batch_supplier
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(barcode) DO UPDATE SET
+              code = excluded.code,
+              name = excluded.name,
+              quantity = excluded.quantity,
+              salesprice = excluded.salesprice,
+              bmrp = excluded.bmrp,
+              cost = excluded.cost,
+              batch_supplier = excluded.batch_supplier`,
+            [
+              code,
+              item.name || item.product_name || 'Unknown',
+              barcode, // Now guaranteed to be unique
+              item.quantity || item.stock || 0,
+              item.salesprice || item.selling_price || 0,
+              item.bmrp || item.mrp || 0,
+              item.cost || item.purchase_price || 0,
+              batchSupplier
+            ]
+          );
+          
+          savedCount++;
+          
+        } catch (itemError: any) {
+          console.error(`❌ Error saving product ${i + 1}:`, itemError.message);
+          errors.push({ index: i, item, error: itemError.message });
+          skippedCount++;
+        }
       }
     });
-    console.log(`✅ Saved ${data.length} product records`);
+    
+    // Verify the count after saving
+    const afterResult = await db.getFirstAsync(
+      'SELECT COUNT(*) as count FROM product_data'
+    ) as {count: number};
+    
+    console.log(`✅ Product save completed:`, {
+      total: data.length,
+      saved: savedCount,
+      skipped: skippedCount,
+      errors: errors.length
+    });
+    
+    if (errors.length > 0) {
+      console.error('❌ Products that failed to save:', errors.slice(0, 5));
+    }
+    
+    console.log(`📊 Products after save: ${afterResult.count}`);
+    console.log(`📈 Change: ${afterResult.count - beforeResult.count > 0 ? '+' : ''}${afterResult.count - beforeResult.count}`);
+    
+    // Verify saved count matches expected
+    const expectedTotal = beforeResult.count + (savedCount - (data.length - savedCount));
+    if (afterResult.count !== afterResult.count) {
+      console.warn(`⚠️ COUNT MISMATCH! Expected around ${expectedTotal}, found ${afterResult.count}`);
+    }
+    
+    return {
+      success: true,
+      saved: savedCount,
+      skipped: skippedCount,
+      total: data.length
+    };
+    
   } catch (error) {
     console.error("❌ Error saving product data:", error);
+    throw error;
+  }
+};
+
+// 🆕 Debug function to check for data issues
+export const debugProductData = async () => {
+  try {
+    console.log("\n🔍 === DEBUGGING PRODUCT DATA ===");
+    
+    // Check for duplicates
+    const duplicates = await db.getAllAsync(`
+      SELECT barcode, COUNT(*) as count 
+      FROM product_data 
+      GROUP BY barcode 
+      HAVING COUNT(*) > 1
+    `) as Array<{barcode: string, count: number}>;
+    
+    if (duplicates.length > 0) {
+      console.log(`⚠️ Found ${duplicates.length} duplicate barcodes:`);
+      duplicates.slice(0, 5).forEach(d => console.log(`  - Barcode: ${d.barcode}, Count: ${d.count}`));
+      if (duplicates.length > 5) console.log(`  ... and ${duplicates.length - 5} more`);
+    } else {
+      console.log("✅ No duplicate barcodes found");
+    }
+    
+    // Check total count
+    const total = await db.getFirstAsync(
+      'SELECT COUNT(*) as count FROM product_data'
+    ) as {count: number};
+    console.log(`📊 Total products: ${total.count}`);
+    
+    // Check for null/empty barcodes
+    const nullBarcodes = await db.getFirstAsync(
+      'SELECT COUNT(*) as count FROM product_data WHERE barcode IS NULL OR barcode = ""'
+    ) as {count: number};
+    if (nullBarcodes.count > 0) {
+      console.log(`⚠️ Found ${nullBarcodes.count} products with null/empty barcodes`);
+    }
+    
+    // Check for synthetic barcodes (CODE_*)
+    const syntheticBarcodes = await db.getFirstAsync(
+      'SELECT COUNT(*) as count FROM product_data WHERE barcode LIKE "CODE_%"'
+    ) as {count: number};
+    if (syntheticBarcodes.count > 0) {
+      console.log(`ℹ️ Found ${syntheticBarcodes.count} products with synthetic barcodes (CODE_*)`);
+    }
+    
+    // Check for null/empty codes
+    const nullCodes = await db.getFirstAsync(
+      'SELECT COUNT(*) as count FROM product_data WHERE code IS NULL OR code = ""'
+    ) as {count: number};
+    if (nullCodes.count > 0) {
+      console.log(`⚠️ Found ${nullCodes.count} products with null/empty codes`);
+    }
+    
+    // Sample some products
+    const samples = await db.getAllAsync(
+      'SELECT code, barcode, name FROM product_data LIMIT 3'
+    ) as Array<{code: string, barcode: string, name: string}>;
+    console.log("🔍 Sample products:");
+    samples.forEach(s => console.log(`  - Code: ${s.code}, Barcode: ${s.barcode}, Name: ${s.name}`));
+    
+    console.log("=== DEBUG COMPLETE ===\n");
+    
+    return {
+      totalProducts: total.count,
+      duplicateBarcodes: duplicates.length,
+      nullBarcodes: nullBarcodes.count,
+      syntheticBarcodes: syntheticBarcodes.count,
+      nullCodes: nullCodes.count
+    };
+  } catch (error) {
+    console.error("❌ Debug failed:", error);
     throw error;
   }
 };
