@@ -219,7 +219,7 @@ export default function HomeScreen() {
               <Ionicons name="shield-checkmark" size={16} color="#9E9E9E" />
               <Text style={styles.footerText}>IMCB Solutions LLP</Text>
             </View>
-            <Text style={styles.footerSubtext}>Secure · Reliable · Enterprise-Grade</Text>
+            <Text style={styles.footerSubtext}>Secure Â· Reliable Â· Enterprise-Grade</Text>
           </View>
         </ScrollView>
       </View>

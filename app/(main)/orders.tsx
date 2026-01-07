@@ -38,6 +38,15 @@ const orderRoutes = [
     accentColor: "#D1C4E9",
     showPending: true,
   },
+  {
+    name: "Report",
+    icon: "stats-chart",
+    path: "/(main)/report",
+    subtitle: "View synced and unsynced items",
+    description: "Track stock history",
+    gradient: ["#673AB7", "#5E35B1", "#512DA8"],
+    accentColor: "#B39DDB",
+  },
 ];
 
 export default function OrdersScreen() {
@@ -111,44 +120,6 @@ export default function OrdersScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* Information Panel - Now First */}
-        <View style={styles.infoPanel}>
-          <LinearGradient
-            colors={["#f0d1f4ff", "#ddcbf9ff"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.infoPanelGradient}
-          >
-            <View style={styles.infoPanelHeader}>
-              <View style={styles.infoPanelIcon}>
-                <Ionicons name="bulb" size={18} color="#7E57C2" />
-              </View>
-              <Text style={styles.infoPanelTitle}>How It Works</Text>
-            </View>
-            <View style={styles.infoPanelContent}>
-              <View style={styles.infoStep}>
-                <View style={styles.stepNumber}>
-                  <Text style={styles.stepNumberText}>1</Text>
-                </View>
-                <View style={styles.stepContent}>
-                  <Text style={styles.stepTitle}>Create Entry</Text>
-                  <Text style={styles.stepDescription}>Add products with details and quantities</Text>
-                </View>
-              </View>
-              <View style={styles.stepConnector} />
-              <View style={styles.infoStep}>
-                <View style={styles.stepNumber}>
-                  <Text style={styles.stepNumberText}>2</Text>
-                </View>
-                <View style={styles.stepContent}>
-                  <Text style={styles.stepTitle}>Sync Data</Text>
-                  <Text style={styles.stepDescription}>Upload to cloud and synchronize across devices</Text>
-                </View>
-              </View>
-            </View>
-          </LinearGradient>
-        </View>
-
         {/* Premium Action Cards */}
         <View style={styles.cardsContainer}>
           {orderRoutes.map((route, index) => (
@@ -298,81 +269,6 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     paddingHorizontal: 24,
     paddingBottom: 40,
-  },
-
-  infoPanel: {
-    marginBottom: 20,
-    borderRadius: 16,
-    overflow: "hidden",
-    shadowColor: "#7E57C2",
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  infoPanelGradient: {
-    padding: 16,
-  },
-  infoPanelHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  infoPanelIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
-  },
-  infoPanelTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#7E57C2",
-  },
-  infoPanelContent: {
-    gap: 0,
-  },
-  infoStep: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  stepNumber: {
-    width: 28,
-    height: 27,
-    borderRadius: 8,
-    backgroundColor: "#7E57C2",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stepNumberText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-  stepContent: {
-    flex: 1,
-    paddingBottom: 12,
-  },
-  stepTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#1A1A1A",
-    marginBottom: 3,
-  },
-  stepDescription: {
-    fontSize: 11,
-    color: "#616161",
-    lineHeight: 16,
-    fontWeight: "500",
-  },
-  stepConnector: {
-    width: 2,
-    height: 12,
-    backgroundColor: "#D1C4E9",
-    marginLeft: 13,
   },
 
   cardsContainer: {

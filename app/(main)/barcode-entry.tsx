@@ -487,7 +487,7 @@ const initStockCountTable = async () => {
           CREATE TABLE stock_count (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             userid TEXT NOT NULL,
-            itemcode TEXT NOT NULL,
+            itemcode TEXT NOT NULL,  -- ✅ This is the missing column
             barcode TEXT NOT NULL,
             quantity INTEGER NOT NULL,
             count_date TEXT NOT NULL,
@@ -498,7 +498,66 @@ const initStockCountTable = async () => {
         `);
         console.log("[DB] stock_count table created successfully");
       } else {
-        console.log("[DB] stock_count table exists");
+        console.log("[DB] stock_count table exists - checking schema...");
+        
+        // Check if itemcode column exists
+        const tableInfo = await db.getAllAsync("PRAGMA table_info(stock_count)");
+        const hasItemcode = tableInfo.some((col: any) => col.name === 'itemcode');
+        
+        if (!hasItemcode) {
+          console.log("[DB] Adding missing itemcode column...");
+          try {
+            await db.execAsync(`
+              ALTER TABLE stock_count ADD COLUMN itemcode TEXT;
+            `);
+            console.log("[DB] Added itemcode column successfully");
+          } catch (alterError) {
+            console.error("[DB] Error adding column:", alterError);
+            // If ALTER fails, we need to recreate the table
+            console.log("[DB] Recreating table with correct schema...");
+            await db.execAsync(`
+              CREATE TABLE stock_count_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                userid TEXT NOT NULL,
+                itemcode TEXT NOT NULL,
+                barcode TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
+                count_date TEXT NOT NULL,
+                sync_status TEXT DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                product_name TEXT
+              );
+            `);
+            
+            // Copy data if there is any
+            const existingData = await db.getAllAsync("SELECT * FROM stock_count");
+            if (existingData.length > 0) {
+              console.log(`[DB] Migrating ${existingData.length} existing records...`);
+              for (const row of existingData) {
+                await db.runAsync(`
+                  INSERT INTO stock_count_new (userid, itemcode, barcode, quantity, count_date, sync_status, created_at, product_name)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
+                  row.userid,
+                  row.barcode, // Use barcode as itemcode for existing records
+                  row.barcode,
+                  row.quantity,
+                  row.count_date,
+                  row.sync_status,
+                  row.created_at,
+                  row.product_name
+                ]);
+              }
+            }
+            
+            // Drop old table and rename new one
+            await db.execAsync("DROP TABLE stock_count");
+            await db.execAsync("ALTER TABLE stock_count_new RENAME TO stock_count");
+            console.log("[DB] Table recreated successfully with correct schema");
+          }
+        } else {
+          console.log("[DB] itemcode column already exists");
+        }
       }
       
       console.log("[DB] stock_count table ready");
@@ -559,6 +618,8 @@ const saveStockCountToSync = async (stockData: {
   return runInQueue(async () => {
     try {
       console.log("[SAVE] Saving stock count to sync:", stockData.barcode);
+
+      const itemcode = stockData.itemcode || stockData.barcode;
       
       await db.runAsync(
         `INSERT INTO stock_count 
@@ -566,7 +627,7 @@ const saveStockCountToSync = async (stockData: {
         VALUES (?, ?, ?, ?, ?, 'pending', datetime('now'), ?)`,
         [
           stockData.userid,
-          stockData.itemcode,
+          itemcode,
           stockData.barcode,
           stockData.quantity,
           stockData.count_date,
@@ -1623,12 +1684,7 @@ export default function BarcodeEntry() {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.scanButton}>
-        <TouchableOpacity onPress={handleOpenScanner}>
-          <Ionicons name="barcode-outline" size={24} color="#680677ff" />
-        </TouchableOpacity>
-      </View>
-
+      
       <Modal
         visible={showScanner}
         animationType="slide"
@@ -1924,12 +1980,15 @@ export default function BarcodeEntry() {
               <TouchableOpacity
                 style={[
                   styles.saveButton,
-                  { flex: 0, paddingHorizontal: 24, marginTop: 0 },
+                  { flex: 1, marginTop: 0, alignItems: 'center', justifyContent: 'center' },
                   styles.saveButtonActive
                 ]}
                 onPress={handleOpenScanner}
               >
-                <Ionicons name="barcode-outline" size={24} color="#ffffff" />
+                <Ionicons name="barcode-outline" size={28} color="#ffffff" />
+                 <Text style={[styles.saveButtonText, { marginTop: 4 }]}>
+                   Scan Barcode
+                 </Text>
               </TouchableOpacity>
             </View>
 
