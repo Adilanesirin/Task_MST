@@ -7,20 +7,20 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "hooks": {
-        "postInstall": "node ./eas-hooks/eas-build-post-install.js"
+      "env": {
+        "EAS_BUILD_POST_INSTALL_COMMAND": "node ./eas-hooks/eas-build-post-install.js"
       }
     },
     "preview": {
       "distribution": "internal",
-      "hooks": {
-        "postInstall": "node ./eas-hooks/eas-build-post-install.js"
+      "env": {
+        "EAS_BUILD_POST_INSTALL_COMMAND": "node ./eas-hooks/eas-build-post-install.js"
       }
     },
     "production": {
       "autoIncrement": true,
-      "hooks": {
-        "postInstall": "node ./eas-hooks/eas-build-post-install.js"
+      "env": {
+        "EAS_BUILD_POST_INSTALL_COMMAND": "node ./eas-hooks/eas-build-post-install.js"
       }
     }
   },
