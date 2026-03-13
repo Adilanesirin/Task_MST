@@ -101,27 +101,23 @@ export default function EditProduct() {
   }, [itemData]);
 
   const handleSave = () => {
-    const updatedItem = {
-      ...product,
-      // Keep original values (read-only fields)
-      name: product.name,
-      barcode: product.barcode,
-      bmrp: product.bmrp,
-      mrp: product.mrp,
-      // Update only the counted quantity
-      countedQuantity: parseInt(editedQuantity) || 0,
-      // Keep original stock unchanged
-      currentStock: parseInt(currentStock) || 0,
-    };
-
-    router.back();
-    setTimeout(() => {
-      router.setParams({
-        updatedItem: JSON.stringify(updatedItem),
-        itemIndex,
-      });
-    }, 100);
+  const updatedItem = {
+    ...product,
+    quantity: parseInt(editedQuantity) || 0,
+    eCost: parseFloat(editedMrp) || product.eCost || 0,
+    cost: product.cost || 0,
+    bmrp: product.bmrp || 0,
+    batchSupplier: product.batchSupplier || '',
   };
+
+  router.back();
+  setTimeout(() => {
+    router.setParams({
+      updatedItem: JSON.stringify(updatedItem),
+      itemIndex,
+    });
+  }, 100);
+};
 
   const handleBack = () => {
     router.back();

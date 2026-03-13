@@ -7,20 +7,46 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "android": {
+        "gradleCommand": ":app:assembleRelease"
+      },
       "env": {
         "EAS_BUILD_POST_INSTALL_COMMAND": "node ./eas-hooks/eas-build-post-install.js"
+      },
+      "cache": {
+        "key": "development-cache-v1"
       }
     },
     "preview": {
       "distribution": "internal",
+      "android": {
+        "gradleCommand": ":app:assembleRelease"
+      },
       "env": {
         "EAS_BUILD_POST_INSTALL_COMMAND": "node ./eas-hooks/eas-build-post-install.js"
+      },
+      "cache": {
+        "key": "preview-cache-v1",
+        "cacheDefaultPaths": true,
+        "customPaths": [
+          "android/.gradle"
+        ]
       }
     },
     "production": {
       "autoIncrement": true,
+      "android": {
+        "gradleCommand": ":app:assembleRelease"
+      },
       "env": {
         "EAS_BUILD_POST_INSTALL_COMMAND": "node ./eas-hooks/eas-build-post-install.js"
+      },
+      "cache": {
+        "key": "production-cache-v1",
+        "cacheDefaultPaths": true,
+        "customPaths": [
+          "android/.gradle"
+        ]
       }
     }
   },

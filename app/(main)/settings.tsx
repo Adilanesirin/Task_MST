@@ -10,6 +10,8 @@ import Toast from "react-native-toast-message";
 
 export default function Settings() {
   const [mode, setMode] = useState<"hardware" | "camera">("hardware");
+  const [duplicatePrompt, setDuplicatePrompt] = useState(true);
+
   const [pinging, setPinging] = useState(false);
   const [pingStatus, setPingStatus] = useState<"success" | "failed" | null>(null);
   const [removingLicense, setRemovingLicense] = useState(false);
@@ -164,10 +166,20 @@ export default function Settings() {
         setMode(saved);
       }
 
+      // Load duplicate prompt setting
+      const savedDuplicatePrompt = await SecureStore.getItemAsync("duplicatePrompt");
+      if (savedDuplicatePrompt !== null) {
+        setDuplicatePrompt(savedDuplicatePrompt !== "false");
+      }
+
       // Load license info using the robust device ID fetching
       const customerName = await AsyncStorage.getItem("customerName");
       const licenseKey = await AsyncStorage.getItem("licenseKey");
-      
+      const licenseType = await AsyncStorage.getItem("licenseType");
+      const demoLicenseKey = await AsyncStorage.getItem("demoLicenseKey");
+      const demoExpiresAt = await AsyncStorage.getItem("demoExpiresAt");
+      const demoDaysRemaining = await AsyncStorage.getItem("demoDaysRemaining");
+
       // Get device ID using the robust method
       let deviceId: string | null = null;
       try {
@@ -179,7 +191,20 @@ export default function Settings() {
         deviceId = await AsyncStorage.getItem("deviceId");
       }
 
-      if (customerName && licenseKey && deviceId) {
+      const isDemo = licenseType === "DEMO" && demoLicenseKey;
+
+      if (isDemo && customerName && deviceId) {
+        // Demo license — use demoLicenseKey and locally stored expiry
+        setLicenseInfo({
+          customerName,
+          licenseKey: demoLicenseKey!,
+          deviceId,
+          expiryDate: demoExpiresAt ?? undefined,
+          remainingDays: demoDaysRemaining ? parseInt(demoDaysRemaining) : undefined,
+          isExpired: demoDaysRemaining ? parseInt(demoDaysRemaining) <= 0 : false,
+        });
+      } else if (customerName && licenseKey && deviceId) {
+        // Production license
         setLicenseInfo({ customerName, licenseKey, deviceId });
         // Fetch expiry date after setting basic info
         fetchLicenseExpiry(licenseKey);
@@ -369,11 +394,49 @@ export default function Settings() {
 
     setRemovingLicense(true);
 
+    const isDemo = licenseInfo.licenseKey.startsWith("DEMO-");
+
     try {
       console.log("🗑️ Removing license...");
       console.log("License Key:", licenseInfo.licenseKey);
       console.log("Device ID:", licenseInfo.deviceId);
+      console.log("Is Demo:", isDemo);
 
+      if (isDemo) {
+        // Demo license — clear locally without server call
+        await AsyncStorage.multiRemove([
+          "licenseActivated",
+          "licenseKey",
+          "licenseType",
+          "license_type",
+          "demoLicenseKey",
+          "demoCompany",
+          "demoExpiresAt",
+          "demoDaysRemaining",
+          "demoStatus",
+          "deviceId",
+          "device_hardware_id",
+          "customerName",
+          "projectName",
+          "clientId",
+        ]);
+
+        await SecureStore.deleteItemAsync("authToken");
+        await SecureStore.deleteItemAsync("userId");
+
+        Toast.show({
+          type: "success",
+          text1: "Demo License Removed",
+          text2: "Device has been deactivated successfully",
+        });
+
+        setTimeout(() => {
+          router.replace("/(auth)/license");
+        }, 1500);
+        return;
+      }
+
+      // Production license — call server
       const LOGOUT_API = `https://activate.imcbs.com/mobileapp/api/project/taskmst/logout/`;
 
       const response = await fetch(LOGOUT_API, {
@@ -486,10 +549,8 @@ export default function Settings() {
 
   const formatDeviceId = (deviceId: string) => {
     if (Platform.OS === 'android') {
-      // Format as hex: show first 8 chars
       return deviceId.length > 8 ? `${deviceId.substring(0, 8)}...` : deviceId;
     } else if (Platform.OS === 'ios') {
-      // Format UUID: show first section
       const parts = deviceId.split('-');
       return parts.length > 0 ? `${parts[0]}-...` : deviceId;
     }
@@ -526,7 +587,7 @@ export default function Settings() {
           >
             <View style={styles.optionContent}>
               <Ionicons 
-                name="hardware-chip-outline" 
+                name="barcode-outline" 
                 size={24} 
                 color={mode === "hardware" ? "#801b90ff" : "#6B7280"} 
               />
@@ -535,10 +596,10 @@ export default function Settings() {
                   styles.optionTitle,
                   mode === "hardware" ? styles.optionTitleSelected : styles.optionTitleUnselected
                 ]}>
-                  Zebra Hardware Scanner
+                  Hardware Scanner
                 </Text>
                 <Text style={styles.optionDescription}>
-                  Use built-in barcode scanner
+                  Use external barcode scanner device
                 </Text>
               </View>
               {mode === "hardware" && (
@@ -574,6 +635,40 @@ export default function Settings() {
               {mode === "camera" && (
                 <Ionicons name="checkmark-circle" size={24} color="#801b90ff" />
               )}
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* Scan Behaviour */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Scan Behaviour</Text>
+          <Text style={styles.cardSubtitle}>
+            Choose what happens when the same item is scanned more than once.
+          </Text>
+          <TouchableOpacity
+            style={[styles.option, duplicatePrompt ? styles.optionSelected : styles.optionUnselected]}
+            onPress={async () => {
+              const next = !duplicatePrompt;
+              setDuplicatePrompt(next);
+              await SecureStore.setItemAsync("duplicatePrompt", String(next));
+            }}
+          >
+            <View style={styles.optionContent}>
+              <Ionicons
+                name={duplicatePrompt ? "alert-circle" : "flash"}
+                size={24}
+                color={duplicatePrompt ? "#801b90ff" : "#6B7280"}
+              />
+              <View style={styles.optionText}>
+                <Text style={[styles.optionTitle, duplicatePrompt ? styles.optionTitleSelected : styles.optionTitleUnselected]}>
+                  {duplicatePrompt ? "Ask before adding duplicate" : "Add duplicate silently"}
+                </Text>
+                <Text style={styles.optionDescription}>
+                  {duplicatePrompt
+                    ? "Shows a confirmation message when the same item is scanned again."
+                    : "Adds the item again immediately without any prompt."}
+                </Text>
+              </View>
             </View>
           </TouchableOpacity>
         </View>
@@ -621,61 +716,50 @@ export default function Settings() {
               </>
             ) : (
               <>
-                <Ionicons name="wifi-outline" size={24} color="#801b90ff" />
+                <Ionicons name="wifi-outline" size={20} color="#801b90ff" />
                 <Text style={styles.pingButtonText}>Ping Server</Text>
               </>
             )}
           </TouchableOpacity>
         </View>
 
-        {/* License Management */}
+        {/* License Info */}
         {licenseInfo && (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>License Management</Text>
-            <Text style={styles.cardSubtitle}>
-              Manage your device license activation
-            </Text>
+            <Text style={styles.cardTitle}>License Information</Text>
 
-            {/* License Info Display */}
             <View style={styles.licenseInfoBox}>
               <View style={styles.licenseInfoRow}>
-                <Ionicons name="person-outline" size={18} color="#6B7280" />
-                <Text style={styles.licenseInfoLabel}>Customer:</Text>
+                <Ionicons name="person-outline" size={16} color="#6B7280" />
+                <Text style={styles.licenseInfoLabel}>Customer</Text>
                 <Text style={styles.licenseInfoValue}>{licenseInfo.customerName}</Text>
               </View>
+
               <View style={styles.licenseInfoRow}>
-                <Ionicons name="key-outline" size={18} color="#6B7280" />
-                <Text style={styles.licenseInfoLabel}>License:</Text>
+                <Ionicons name="key-outline" size={16} color="#6B7280" />
+                <Text style={styles.licenseInfoLabel}>License</Text>
                 <Text style={styles.licenseInfoValue} numberOfLines={1}>
                   {licenseInfo.licenseKey}
                 </Text>
               </View>
+
               <View style={styles.licenseInfoRow}>
-                <Ionicons name="phone-portrait-outline" size={18} color="#6B7280" />
-                <Text style={styles.licenseInfoLabel}>Device ID:</Text>
-                <Text style={styles.licenseInfoValue} numberOfLines={1}>
+                <Ionicons name="phone-portrait-outline" size={16} color="#6B7280" />
+                <Text style={styles.licenseInfoLabel}>{getDeviceType()}</Text>
+                <Text style={styles.licenseInfoValue}>
                   {formatDeviceId(licenseInfo.deviceId)}
                 </Text>
               </View>
-              <View style={styles.licenseInfoRow}>
-                <Ionicons name="information-circle-outline" size={18} color="#6B7280" />
-                <Text style={styles.licenseInfoLabel}>Type:</Text>
-                <Text style={styles.licenseInfoValue}>
-                  {getDeviceType()}
-                </Text>
-              </View>
-              
-              {/* License Expiry Information */}
+
               {loadingExpiry ? (
-                <View style={styles.licenseInfoRow}>
+                <View style={{ alignItems: 'center', paddingVertical: 8 }}>
                   <ActivityIndicator size="small" color="#801b90ff" />
-                  <Text style={styles.licenseInfoLabel}>Loading expiry...</Text>
                 </View>
               ) : licenseInfo.expiryDate ? (
                 <>
                   <View style={styles.licenseInfoRow}>
-                    <Ionicons name="calendar-outline" size={18} color="#6B7280" />
-                    <Text style={styles.licenseInfoLabel}>Expires:</Text>
+                    <Ionicons name="calendar-outline" size={16} color="#6B7280" />
+                    <Text style={styles.licenseInfoLabel}>Expires</Text>
                     <Text style={styles.licenseInfoValue}>
                       {formatExpiryDate(licenseInfo.expiryDate)}
                     </Text>

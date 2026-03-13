@@ -8,6 +8,11 @@ let isInitializing = false;
 export const getDatabase = (): SQLite.SQLiteDatabase => {
   if (!dbInstance) {
     dbInstance = SQLite.openDatabaseSync("magicpedia.db");
+    // WAL mode allows concurrent reads + writes without locking
+    try {
+      dbInstance.execSync("PRAGMA journal_mode=WAL;");
+      dbInstance.execSync("PRAGMA busy_timeout=30000;");
+    } catch (_) { }
     console.log("✅ New database connection created");
   }
   return dbInstance;
@@ -15,6 +20,9 @@ export const getDatabase = (): SQLite.SQLiteDatabase => {
 
 export const closeDatabase = () => {
   if (dbInstance) {
+    try {
+      dbInstance.closeSync();
+    } catch (_) { }
     dbInstance = null;
     console.log("✅ Database connection released");
   }
@@ -29,7 +37,7 @@ export const initDatabase = async () => {
 
   isInitializing = true;
   const db = getDatabase();
-  
+
   try {
     // Check if batch_supplier column exists in product_data
     let batchSupplierExists = false;
@@ -37,7 +45,7 @@ export const initDatabase = async () => {
       const checkResult = await db.getAllAsync(
         "PRAGMA table_info(product_data)"
       ) as any[];
-      
+
       if (checkResult && Array.isArray(checkResult)) {
         batchSupplierExists = checkResult.some(
           (column: any) => column.name === "batch_supplier"
@@ -68,7 +76,7 @@ export const initDatabase = async () => {
 
       CREATE TABLE IF NOT EXISTS orders_to_sync (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        supplier_code TEXT NOT NULL,
+        supplier_code TEXT DEFAULT '',
         userid TEXT NOT NULL,
         barcode TEXT NOT NULL,
         quantity NUMERIC NOT NULL,
@@ -111,11 +119,20 @@ export const initDatabase = async () => {
         }
       }
     }
+    try {
+      await db.execAsync(`ALTER TABLE orders_to_sync ADD COLUMN itemcode TEXT NOT NULL DEFAULT ''`);
+    } catch (e) { /* already exists */ }
+    try {
+      await db.execAsync(`ALTER TABLE orders_to_sync ADD COLUMN product_name TEXT`);
+    } catch (e) { /* already exists */ }
+    try {
+      await db.execAsync(`ALTER TABLE orders_to_sync ADD COLUMN is_manual_entry INTEGER DEFAULT 0`);
+    } catch (e) { /* already exists */ }
 
     console.log("✅ Database initialized successfully with all tables.");
   } catch (err) {
     console.error("❌ Error initializing DB:", err);
-    
+
     // Don't throw error for duplicate column issues
     if (err instanceof Error && err.message.includes('duplicate column name')) {
       console.warn("⚠️ Duplicate column error, but continuing...");
@@ -127,8 +144,7 @@ export const initDatabase = async () => {
   }
 };
 
-// Helper functions for common database operations
-export const insertMasterData = async (data: Array<{code: string, name: string, place?: string}>) => {
+export const insertMasterData = async (data: Array<{ code: string, name: string, place?: string }>) => {
   const db = getDatabase();
   try {
     await db.withTransactionAsync(async () => {
@@ -141,18 +157,18 @@ export const insertMasterData = async (data: Array<{code: string, name: string, 
     });
     console.log(`✅ Inserted ${data.length} master data records`);
   } catch (err) {
+    try { await db.execAsync('ROLLBACK'); } catch (_) { }
     console.error("❌ Error inserting master data:", err);
     throw err;
   }
 };
-
 export const insertProductData = async (data: Array<{
-  code: string, 
-  name?: string, 
-  barcode?: string, 
-  quantity?: number, 
-  salesprice?: number, 
-  bmrp?: number, 
+  code: string,
+  name?: string,
+  barcode?: string,
+  quantity?: number,
+  salesprice?: number,
+  bmrp?: number,
   cost?: number,
   batch_supplier?: string
 }>) => {
@@ -163,20 +179,23 @@ export const insertProductData = async (data: Array<{
         await db.runAsync(
           'INSERT OR REPLACE INTO product_data (code, name, barcode, quantity, salesprice, bmrp, cost, batch_supplier) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
           [
-            item.code, 
-            item.name || null, 
-            item.barcode || null, 
-            item.quantity || 0, 
-            item.salesprice || 0, 
-            item.bmrp || 0, 
+            item.code,
+            item.name || null,
+            item.barcode || null,
+            item.quantity || 0,
+            item.salesprice || 0,
+            item.bmrp || 0,
             item.cost || 0,
             item.batch_supplier || null
           ]
         );
       }
     });
+
+
     console.log(`✅ Inserted ${data.length} product data records`);
   } catch (err) {
+    try { await db.execAsync('ROLLBACK'); } catch (_) { }
     console.error("❌ Error inserting product data:", err);
     throw err;
   }
@@ -225,7 +244,7 @@ export const updateSyncTimestamp = async (timestamp: string) => {
 export const getLastSyncTimestamp = async (): Promise<string | null> => {
   const db = getDatabase();
   try {
-    const result = await db.getFirstAsync('SELECT last_synced FROM sync_info WHERE id = 1') as {last_synced: string} | null;
+    const result = await db.getFirstAsync('SELECT last_synced FROM sync_info WHERE id = 1') as { last_synced: string } | null;
     return result?.last_synced || null;
   } catch (err) {
     console.error("❌ Error getting last sync timestamp:", err);

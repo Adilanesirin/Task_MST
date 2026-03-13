@@ -1,9 +1,6 @@
-// utils/sync.ts - COMPLETE CORRECTED CODE FOR MST (Stock Taking)
-import * as SQLite from "expo-sqlite";
+// utils/sync.ts
+import { getDatabase } from "./database";
 
-const db = SQLite.openDatabaseSync("magicpedia.db");
-
-// Type definition for stock count with product data
 interface StockCountRow {
   id: number;
   product_name: string;
@@ -23,251 +20,124 @@ interface StockCountRow {
   batch_supplier: string | null;
 }
 
-// ✅ FIXED: Save master data using UPSERT to prevent data loss
+// SQL-safe literal escape — used for execAsync which does not support bind params
+const sqlEscape = (v: any): string => {
+  if (v === null || v === undefined) return 'NULL';
+  if (typeof v === 'number') return isNaN(v) ? '0' : String(v);
+  return "'" + String(v).replace(/'/g, "''") + "'";
+};
 export const saveMasterData = async (data: any[]) => {
+  const db = getDatabase();
+  console.log(`💾 Saving ${data.length} master records...`);
+  const startTime = Date.now();
+  const validData = data.filter(item => item.code && item.name);
+
   try {
-    console.log(`💾 Starting to save ${data.length} master records...`);
-    
-    await db.withTransactionAsync(async () => {
-      for (const item of data) {
-        // Use UPSERT instead of INSERT OR REPLACE
-        await db.runAsync(
-          `INSERT INTO master_data (code, name, place) 
-           VALUES (?, ?, ?)
-           ON CONFLICT(code) DO UPDATE SET
-             name = excluded.name,
-             place = excluded.place`,
-          [item.code, item.name, item.place || null]
-        );
-      }
-    });
-    
-    // Verify the count after saving
-    const verifyResult = await db.getFirstAsync(
-      'SELECT COUNT(*) as count FROM master_data'
-    ) as {count: number};
-    
-    console.log(`✅ Saved ${data.length} master records`);
-    console.log(`📊 Total masters in database: ${verifyResult.count}`);
-    
-    if (verifyResult.count < data.length) {
-      console.warn(`⚠️ WARNING: Expected at least ${data.length} masters but database has ${verifyResult.count}`);
+    try { await db.execAsync('ROLLBACK;'); } catch (_) { }
+
+    await db.execAsync('DELETE FROM master_data;');
+
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < validData.length; i += CHUNK_SIZE) {
+      const chunk = validData.slice(i, i + CHUNK_SIZE);
+      const valueRows = chunk.map((item: any) =>
+        `(${sqlEscape(item.code)},${sqlEscape(item.name)},${sqlEscape(item.place)})`
+      ).join(',');
+      await db.execAsync(
+        `INSERT OR REPLACE INTO master_data (code, name, place) VALUES ${valueRows};`
+      );
+      console.log(`📊 Master progress: ${Math.min(i + CHUNK_SIZE, validData.length)}/${validData.length}`);
     }
-    
+
+    const verifyResult = await db.getFirstAsync('SELECT COUNT(*) as count FROM master_data') as { count: number };
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`✅ Master saved: ${verifyResult?.count || 0} records in ${duration}s`);
+
   } catch (error) {
     console.error("❌ Error saving master data:", error);
     throw error;
   }
 };
 
-// 🔥 FIXED: Save product data handling null barcodes properly
 export const saveProductData = async (data: any[]) => {
+  const db = getDatabase();
+  console.log(`💾 Starting to save ${data.length} product records...`);
+  const startTime = Date.now();
+  const CHUNK_SIZE = 500;
+
   try {
-    console.log(`💾 Starting to save ${data.length} product records...`);
-    
-    // First, get the count before saving
-    const beforeResult = await db.getFirstAsync(
-      'SELECT COUNT(*) as count FROM product_data'
-    ) as {count: number};
-    console.log(`📊 Products before save: ${beforeResult.count}`);
-    
-    let savedCount = 0;
-    let skippedCount = 0;
-    const errors: any[] = [];
-    
-    await db.withTransactionAsync(async () => {
-      for (let i = 0; i < data.length; i++) {
-        const item = data[i];
-        
-        try {
-          const code = item.code || item.product_code;
-          let barcode = item.barcode;
-          const batchSupplier = item.batch_supplier || item.supplier || null;
-          
-          // 🔥 FIX: Handle null barcodes by using code as fallback
-          if (!barcode || barcode === null || barcode === '') {
-            if (code) {
-              barcode = `CODE_${code}`;
-              console.log(`⚠️ Product ${i + 1}: Null barcode detected, using CODE_${code}`);
-            } else {
-              console.warn(`⚠️ Skipping product ${i + 1}: Missing both code and barcode`, item);
-              skippedCount++;
-              continue;
-            }
-          }
-          
-          if (!code) {
-            console.warn(`⚠️ Skipping product ${i + 1}: Missing code`, item);
-            skippedCount++;
-            continue;
-          }
-          
-          // Use UPSERT (INSERT ... ON CONFLICT DO UPDATE) 
-          await db.runAsync(
-            `INSERT INTO product_data (
-              code, name, barcode, quantity, salesprice, bmrp, cost, batch_supplier
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(barcode) DO UPDATE SET
-              code = excluded.code,
-              name = excluded.name,
-              quantity = excluded.quantity,
-              salesprice = excluded.salesprice,
-              bmrp = excluded.bmrp,
-              cost = excluded.cost,
-              batch_supplier = excluded.batch_supplier`,
-            [
-              code,
-              item.name || item.product_name || 'Unknown',
-              barcode, // Now guaranteed to be unique
-              item.quantity || item.stock || 0,
-              item.salesprice || item.selling_price || 0,
-              item.bmrp || item.mrp || 0,
-              item.cost || item.purchase_price || 0,
-              batchSupplier
-            ]
-          );
-          
-          savedCount++;
-          
-        } catch (itemError: any) {
-          console.error(`❌ Error saving product ${i + 1}:`, itemError.message);
-          errors.push({ index: i, item, error: itemError.message });
-          skippedCount++;
-        }
-      }
-    });
-    
-    // Verify the count after saving
-    const afterResult = await db.getFirstAsync(
-      'SELECT COUNT(*) as count FROM product_data'
-    ) as {count: number};
-    
-    console.log(`✅ Product save completed:`, {
-      total: data.length,
-      saved: savedCount,
-      skipped: skippedCount,
-      errors: errors.length
-    });
-    
-    if (errors.length > 0) {
-      console.error('❌ Products that failed to save:', errors.slice(0, 5));
+    // Same ROLLBACK guard as saveMasterData
+    try { await db.execAsync('ROLLBACK;'); } catch (_) { }
+
+    // Delete existing product data (auto-commit)
+    await db.execAsync('DELETE FROM product_data;');
+
+    for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+      const chunk = data.slice(i, i + CHUNK_SIZE);
+      const valueRows = chunk.map((item: any) => {
+        const code = sqlEscape(item.code || item.product_code);
+        const name = sqlEscape(item.name || item.product_name || 'Unknown');
+        const barcode = sqlEscape(item.barcode || `CODE_${item.code}`);
+        const qty = sqlEscape(typeof item.quantity === 'number' ? item.quantity : 0);
+        const sp = sqlEscape(typeof item.salesprice === 'number' ? item.salesprice : 0);
+        const bmrp = sqlEscape(typeof item.bmrp === 'number' ? item.bmrp : 0);
+        const cost = sqlEscape(typeof item.cost === 'number' ? item.cost : 0);
+        const batch = sqlEscape(item.batch_supplier);
+        return `(${code},${name},${barcode},${qty},${sp},${bmrp},${cost},${batch})`;
+      }).join(',');
+      await db.execAsync(
+        `INSERT OR REPLACE INTO product_data (code, name, barcode, quantity, salesprice, bmrp, cost, batch_supplier) VALUES ${valueRows};`
+      );
+      console.log(`✅ Product progress: ${Math.min(i + CHUNK_SIZE, data.length)} / ${data.length}`);
     }
-    
-    console.log(`📊 Products after save: ${afterResult.count}`);
-    console.log(`📈 Change: ${afterResult.count - beforeResult.count > 0 ? '+' : ''}${afterResult.count - beforeResult.count}`);
-    
-    // Verify saved count matches expected
-    const expectedTotal = beforeResult.count + (savedCount - (data.length - savedCount));
-    if (afterResult.count !== afterResult.count) {
-      console.warn(`⚠️ COUNT MISMATCH! Expected around ${expectedTotal}, found ${afterResult.count}`);
-    }
-    
-    return {
-      success: true,
-      saved: savedCount,
-      skipped: skippedCount,
-      total: data.length
-    };
-    
+
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`✅ Product save completed: ${data.length} records in ${duration}s`);
+    return { success: true, total: data.length };
+
   } catch (error) {
     console.error("❌ Error saving product data:", error);
     throw error;
   }
 };
 
-// 🆕 Debug function to check for data issues
 export const debugProductData = async () => {
+  const db = getDatabase();
   try {
     console.log("\n🔍 === DEBUGGING PRODUCT DATA ===");
-    
-    // Check for duplicates
-    const duplicates = await db.getAllAsync(`
-      SELECT barcode, COUNT(*) as count 
-      FROM product_data 
-      GROUP BY barcode 
-      HAVING COUNT(*) > 1
-    `) as Array<{barcode: string, count: number}>;
-    
+    const duplicates = await db.getAllAsync(`SELECT barcode, COUNT(*) as count FROM product_data GROUP BY barcode HAVING COUNT(*) > 1`) as Array<{ barcode: string, count: number }>;
     if (duplicates.length > 0) {
       console.log(`⚠️ Found ${duplicates.length} duplicate barcodes:`);
       duplicates.slice(0, 5).forEach(d => console.log(`  - Barcode: ${d.barcode}, Count: ${d.count}`));
-      if (duplicates.length > 5) console.log(`  ... and ${duplicates.length - 5} more`);
     } else {
       console.log("✅ No duplicate barcodes found");
     }
-    
-    // Check total count
-    const total = await db.getFirstAsync(
-      'SELECT COUNT(*) as count FROM product_data'
-    ) as {count: number};
+    const total = await db.getFirstAsync('SELECT COUNT(*) as count FROM product_data') as { count: number };
     console.log(`📊 Total products: ${total.count}`);
-    
-    // Check for null/empty barcodes
-    const nullBarcodes = await db.getFirstAsync(
-      'SELECT COUNT(*) as count FROM product_data WHERE barcode IS NULL OR barcode = ""'
-    ) as {count: number};
-    if (nullBarcodes.count > 0) {
-      console.log(`⚠️ Found ${nullBarcodes.count} products with null/empty barcodes`);
-    }
-    
-    // Check for synthetic barcodes (CODE_*)
-    const syntheticBarcodes = await db.getFirstAsync(
-      'SELECT COUNT(*) as count FROM product_data WHERE barcode LIKE "CODE_%"'
-    ) as {count: number};
-    if (syntheticBarcodes.count > 0) {
-      console.log(`ℹ️ Found ${syntheticBarcodes.count} products with synthetic barcodes (CODE_*)`);
-    }
-    
-    // Check for null/empty codes
-    const nullCodes = await db.getFirstAsync(
-      'SELECT COUNT(*) as count FROM product_data WHERE code IS NULL OR code = ""'
-    ) as {count: number};
-    if (nullCodes.count > 0) {
-      console.log(`⚠️ Found ${nullCodes.count} products with null/empty codes`);
-    }
-    
-    // Sample some products
-    const samples = await db.getAllAsync(
-      'SELECT code, barcode, name FROM product_data LIMIT 3'
-    ) as Array<{code: string, barcode: string, name: string}>;
+    const nullBarcodes = await db.getFirstAsync('SELECT COUNT(*) as count FROM product_data WHERE barcode IS NULL OR barcode = ""') as { count: number };
+    if (nullBarcodes.count > 0) console.log(`⚠️ Found ${nullBarcodes.count} products with null/empty barcodes`);
+    const syntheticBarcodes = await db.getFirstAsync('SELECT COUNT(*) as count FROM product_data WHERE barcode LIKE "CODE_%"') as { count: number };
+    if (syntheticBarcodes.count > 0) console.log(`ℹ️ Found ${syntheticBarcodes.count} products with synthetic barcodes`);
+    const nullCodes = await db.getFirstAsync('SELECT COUNT(*) as count FROM product_data WHERE code IS NULL OR code = ""') as { count: number };
+    if (nullCodes.count > 0) console.log(`⚠️ Found ${nullCodes.count} products with null/empty codes`);
+    const samples = await db.getAllAsync('SELECT code, barcode, name FROM product_data LIMIT 3') as Array<{ code: string, barcode: string, name: string }>;
     console.log("🔍 Sample products:");
     samples.forEach(s => console.log(`  - Code: ${s.code}, Barcode: ${s.barcode}, Name: ${s.name}`));
-    
     console.log("=== DEBUG COMPLETE ===\n");
-    
-    return {
-      totalProducts: total.count,
-      duplicateBarcodes: duplicates.length,
-      nullBarcodes: nullBarcodes.count,
-      syntheticBarcodes: syntheticBarcodes.count,
-      nullCodes: nullCodes.count
-    };
+    return { totalProducts: total.count, duplicateBarcodes: duplicates.length, nullBarcodes: nullBarcodes.count, syntheticBarcodes: syntheticBarcodes.count, nullCodes: nullCodes.count };
   } catch (error) {
     console.error("❌ Debug failed:", error);
     throw error;
   }
 };
 
-// Get local data statistics
 export const getLocalDataStats = async () => {
+  const db = getDatabase();
   try {
-    const masterCountResult = await db.getFirstAsync(
-      'SELECT COUNT(*) as count FROM master_data'
-    ) as {count: number};
-    
-    const productCountResult = await db.getFirstAsync(
-      'SELECT COUNT(*) as count FROM product_data'
-    ) as {count: number};
-    
-    const pendingStockCountsResult = await db.getFirstAsync(
-      'SELECT COUNT(*) as count FROM stock_count WHERE sync_status = ?', 
-      ['pending']
-    ) as {count: number};
-    
-    const lastSyncedResult = await db.getFirstAsync(
-      'SELECT last_synced FROM sync_info WHERE id = 1'
-    ) as {last_synced: string} | null;
-
+    const masterCountResult = await db.getFirstAsync('SELECT COUNT(*) as count FROM master_data') as { count: number };
+    const productCountResult = await db.getFirstAsync('SELECT COUNT(*) as count FROM product_data') as { count: number };
+    const pendingStockCountsResult = await db.getFirstAsync('SELECT COUNT(*) as count FROM stock_count WHERE sync_status = ?', ['pending']) as { count: number };
+    const lastSyncedResult = await db.getFirstAsync('SELECT last_synced FROM sync_info WHERE id = 1') as { last_synced: string } | null;
     return {
       masterCount: masterCountResult?.count || 0,
       productCount: productCountResult?.count || 0,
@@ -276,142 +146,43 @@ export const getLocalDataStats = async () => {
     };
   } catch (error) {
     console.error("❌ Error getting local stats:", error);
-    return {
-      masterCount: 0,
-      productCount: 0,
-      pendingOrders: 0,
-      lastSynced: null
-    };
+    return { masterCount: 0, productCount: 0, pendingOrders: 0, lastSynced: null };
   }
 };
 
-// 🎯 Get pending stock counts with itemcode and barcode separated
 export const getPendingOrders = async () => {
+  const db = getDatabase();
   try {
-    // JOIN with product_data to get the correct product code
-    const stockCounts = await db.getAllAsync(
-      `SELECT 
-         s.id,
-         s.product_name,
-         s.barcode as scanned_barcode,
-         s.quantity,
-         s.count_date,
-         s.userid,
-         s.sync_status,
-         s.created_at,
-         p.code as itemcode,
-         p.barcode as product_barcode,
-         p.name as product_name_from_master,
-         p.quantity as stock_quantity,
-         p.salesprice,
-         p.bmrp as mrp,
-         p.cost,
-         p.batch_supplier
-       FROM stock_count s 
-       LEFT JOIN product_data p ON s.barcode = p.barcode
-       WHERE s.sync_status = ? 
-       ORDER BY s.created_at`,
-      ['pending']
-    ) as StockCountRow[];
-    
-    console.log("\n📊 === getPendingOrders() DEBUG ===");
-    console.log(`Total stock counts fetched: ${stockCounts.length}`);
-    
-    // 🚨 Check for missing product codes
-    const missingProducts = stockCounts.filter(s => !s.itemcode);
-    
-    if (missingProducts.length > 0) {
-      console.error(`\n❌ CRITICAL: ${missingProducts.length} stock counts without product match!`);
-      console.error("Missing barcodes:", missingProducts.map(m => m.scanned_barcode).join(", "));
-      
-      // Show detailed error to user
-      const barcodeList = missingProducts.map(m => m.scanned_barcode).join(", ");
-      throw new Error(
-        `Cannot upload: ${missingProducts.length} item(s) not found in product database.\n\n` +
-        `Missing barcodes: ${barcodeList}\n\n` +
-        `Solution: Please sync/download product data from server first, or remove these items from stock count.`
-      );
-    }
-    
-    if (stockCounts.length > 0) {
-      console.log("\n🔍 First stock count:");
-      const first = stockCounts[0];
-      console.log("  - ID:", first.id);
-      console.log("  - Product name:", first.product_name);
-      console.log("  - itemcode (product code):", first.itemcode);
-      console.log("  - scanned_barcode:", first.scanned_barcode);
-      console.log("  - product_barcode:", first.product_barcode);
-      console.log("  - quantity:", first.quantity);
-      console.log("  - userid:", first.userid);
-      
-      if (!first.itemcode) {
-        console.error("❌ CRITICAL: No itemcode found for barcode:", first.scanned_barcode);
-      } else {
-        console.log("✅ Valid itemcode found:", first.itemcode);
-        console.log("✅ Will upload: item =", first.itemcode, ", barcode =", first.scanned_barcode);
-      }
-    }
-    
-    // 🎯 Map to clean format with SEPARATE itemcode and barcode columns
-    const formattedOrders = stockCounts.map((stock: StockCountRow) => ({
-      id: stock.id,
-      product_name: stock.product_name || stock.product_name_from_master,
-      itemcode: stock.itemcode,           // ✅ Product code (e.g., "00073")
-      barcode: stock.scanned_barcode,     // ✅ Full barcode (e.g., "00073002 : 1")
-      quantity: stock.quantity,
-      count_date: stock.count_date,
-      order_date: stock.count_date,
-      userid: stock.userid,
-      sync_status: stock.sync_status,
-      created_at: stock.created_at,
-      mrp: stock.mrp || 0,
-      salesprice: stock.salesprice || 0,
-      cost: stock.cost || 0,
-      stock_quantity: stock.stock_quantity || 0,
-      batch_supplier: stock.batch_supplier
-    }));
-    
-    console.log(`\n✅ Processed ${formattedOrders.length} stock counts`);
-    console.log("📊 Sample formatted order:");
-    if (formattedOrders.length > 0) {
-      console.log("   - itemcode (will go to 'item' column):", formattedOrders[0].itemcode);
-      console.log("   - barcode (will go to 'barcode' column):", formattedOrders[0].barcode);
-    }
-    console.log("📊 === END DEBUG ===\n");
-    
-    return formattedOrders;
+    const orders = await db.getAllAsync(
+      `SELECT id, userid, itemcode, barcode, quantity, rate, mrp, order_date, sync_status, created_at, product_name, is_manual_entry
+       FROM orders_to_sync WHERE sync_status = 'pending' ORDER BY created_at`
+    ) as any[];
+    console.log(`\n📊 Total pending orders fetched: ${orders.length}`);
+    if (orders.length > 0) console.log("📊 Sample order:", orders[0]);
+    return orders;
   } catch (error) {
-    console.error("❌ Error getting pending stock counts:", error);
+    console.error("❌ Error getting pending orders:", error);
     throw error;
   }
 };
 
-// Mark stock counts as synced
 export const markOrdersAsSynced = async () => {
+  const db = getDatabase();
   try {
-    const result = await db.runAsync(
-      'UPDATE stock_count SET sync_status = ? WHERE sync_status = ?',
-      ['synced', 'pending']
-    );
-    
-    console.log("✅ Stock counts marked as synced");
-    console.log(`   Affected rows: ${result.changes}`);
-    
+    const result = await db.runAsync('UPDATE orders_to_sync SET sync_status = ? WHERE sync_status = ?', ['synced', 'pending']);
+    console.log("✅ Orders marked as synced");
     return result.changes;
   } catch (error) {
-    console.error("❌ Error marking stock counts as synced:", error);
+    console.error("❌ Error marking orders as synced:", error);
     throw error;
   }
 };
 
-// Update last synced timestamp
 export const updateLastSynced = async () => {
+  const db = getDatabase();
   try {
     const now = new Date().toISOString();
-    await db.runAsync(
-      'INSERT OR REPLACE INTO sync_info (id, last_synced) VALUES (1, ?)',
-      [now]
-    );
+    await db.runAsync('INSERT OR REPLACE INTO sync_info (id, last_synced) VALUES (1, ?)', [now]);
     console.log("✅ Last sync timestamp updated:", now);
   } catch (error) {
     console.error("❌ Error updating sync timestamp:", error);
@@ -419,123 +190,54 @@ export const updateLastSynced = async () => {
   }
 };
 
-// Clean up duplicate stock counts
 export const cleanupDuplicateOrders = async () => {
+  const db = getDatabase();
   try {
     console.log("🧹 Cleaning up duplicate stock counts...");
-    
-    interface DuplicateRow {
-      barcode: string;
-      count_date: string;
-      userid: string;
-      duplicate_count: number;
-      stock_ids: string;
-      latest_quantity: number;
-      latest_created_at: string;
-    }
-    
+    interface DuplicateRow { barcode: string; count_date: string; userid: string; duplicate_count: number; stock_ids: string; latest_quantity: number; latest_created_at: string; }
     const duplicates = await db.getAllAsync(`
-      SELECT 
-        barcode, 
-        count_date, 
-        userid, 
-        COUNT(*) as duplicate_count,
-        GROUP_CONCAT(id) as stock_ids,
-        MAX(quantity) as latest_quantity,
-        MAX(created_at) as latest_created_at
-      FROM stock_count 
-      WHERE sync_status = 'pending'
-      GROUP BY barcode, count_date, userid
-      HAVING COUNT(*) > 1
+      SELECT barcode, count_date, userid, COUNT(*) as duplicate_count, GROUP_CONCAT(id) as stock_ids, MAX(quantity) as latest_quantity, MAX(created_at) as latest_created_at
+      FROM stock_count WHERE sync_status = 'pending' GROUP BY barcode, count_date, userid HAVING COUNT(*) > 1
     `) as DuplicateRow[];
-
-    console.log(`Found ${duplicates.length} sets of duplicates to clean up`);
-
-    if (duplicates.length === 0) {
-      console.log("✅ No duplicates found");
-      return 0;
-    }
-
+    if (duplicates.length === 0) { console.log("✅ No duplicates found"); return 0; }
     let totalDeleted = 0;
-
     for (const duplicate of duplicates) {
       const stockIds = duplicate.stock_ids.split(',').map((id: string) => parseInt(id));
-      
-      console.log(`\nProcessing duplicates for barcode: ${duplicate.barcode}`);
-      console.log(`  - Found ${duplicate.duplicate_count} duplicates`);
-      
       const stockIdToKeep = stockIds[0];
       const stockIdsToDelete = stockIds.slice(1);
-      
-      await db.runAsync(
-        `UPDATE stock_count 
-         SET quantity = ? 
-         WHERE id = ?`,
-        [duplicate.latest_quantity, stockIdToKeep]
-      );
-      
+      await db.runAsync(`UPDATE stock_count SET quantity = ? WHERE id = ?`, [duplicate.latest_quantity, stockIdToKeep]);
       if (stockIdsToDelete.length > 0) {
         const placeholders = stockIdsToDelete.map(() => '?').join(',');
-        await db.runAsync(
-          `DELETE FROM stock_count 
-           WHERE id IN (${placeholders})`,
-          stockIdsToDelete
-        );
-        
+        await db.runAsync(`DELETE FROM stock_count WHERE id IN (${placeholders})`, stockIdsToDelete);
         totalDeleted += stockIdsToDelete.length;
       }
     }
-    
-    console.log(`\n✅ Cleanup complete: Removed ${totalDeleted} duplicate records`);
-    
+    console.log(`✅ Cleanup complete: Removed ${totalDeleted} duplicate records`);
     return duplicates.length;
   } catch (error) {
-    console.error("❌ Error cleaning up duplicate stock counts:", error);
+    console.error("❌ Error cleaning up duplicates:", error);
     throw error;
   }
 };
 
-// 🆕 Remove stock counts that don't have valid product codes
 export const removeOrphanedStockCounts = async () => {
+  const db = getDatabase();
   try {
     console.log("\n🧹 === CLEANING ORPHANED/INVALID STOCK COUNTS ===");
-    
-    // Find stock counts without matching products OR where code equals barcode (invalid data)
     const orphaned = await db.getAllAsync(`
       SELECT s.id, s.barcode, s.product_name, s.quantity, p.code
-      FROM stock_count s
-      LEFT JOIN product_data p ON s.barcode = p.barcode
+      FROM stock_count s LEFT JOIN product_data p ON s.barcode = p.barcode
       WHERE (p.code IS NULL OR p.code = s.barcode) AND s.sync_status = 'pending'
-    `) as Array<{id: number, barcode: string, product_name: string, quantity: number, code: string | null}>;
-
-    if (orphaned.length === 0) {
-      console.log("✅ No orphaned/invalid stock counts found");
-      return 0;
-    }
-
-    console.log(`⚠️ Found ${orphaned.length} orphaned/invalid stock count(s):`);
-    orphaned.forEach(item => {
-      if (!item.code) {
-        console.log(`   - ID: ${item.id}, Barcode: ${item.barcode} [NO PRODUCT MATCH]`);
-      } else if (item.code === item.barcode) {
-        console.log(`   - ID: ${item.id}, Barcode: ${item.barcode} [INVALID: code equals barcode]`);
-      }
-    });
-
-    // Delete orphaned/invalid entries
+    `) as Array<{ id: number, barcode: string, product_name: string, quantity: number, code: string | null }>;
+    if (orphaned.length === 0) { console.log("✅ No orphaned stock counts found"); return 0; }
+    console.log(`⚠️ Found ${orphaned.length} orphaned stock count(s)`);
     const result = await db.runAsync(`
-      DELETE FROM stock_count 
-      WHERE id IN (
-        SELECT s.id 
-        FROM stock_count s
-        LEFT JOIN product_data p ON s.barcode = p.barcode
+      DELETE FROM stock_count WHERE id IN (
+        SELECT s.id FROM stock_count s LEFT JOIN product_data p ON s.barcode = p.barcode
         WHERE (p.code IS NULL OR p.code = s.barcode) AND s.sync_status = 'pending'
       )
     `);
-
-    console.log(`✅ Removed ${result.changes} orphaned/invalid stock count(s)`);
-    console.log("=== CLEANUP COMPLETE ===\n");
-
+    console.log(`✅ Removed ${result.changes} orphaned stock count(s)`);
     return result.changes;
   } catch (error) {
     console.error("❌ Error removing orphaned stock counts:", error);
@@ -543,57 +245,28 @@ export const removeOrphanedStockCounts = async () => {
   }
 };
 
-// Clear all sync data
 export const clearAllSyncData = async () => {
+  const db = getDatabase();
   try {
-    const syncedResult = await db.runAsync(
-      'DELETE FROM stock_count WHERE sync_status = ?',
-      ['synced']
-    );
-    
+    const syncedResult = await db.runAsync('DELETE FROM stock_count WHERE sync_status = ?', ['synced']);
     const syncInfoResult = await db.runAsync('DELETE FROM sync_info');
-    
     console.log("✅ All synced data cleared");
-    console.log(`   Deleted ${syncedResult.changes} synced stock counts`);
-    
-    return {
-      deletedStockCounts: syncedResult.changes,
-      deletedSyncInfo: syncInfoResult.changes
-    };
+    return { deletedStockCounts: syncedResult.changes, deletedSyncInfo: syncInfoResult.changes };
   } catch (error) {
     console.error("❌ Error clearing sync data:", error);
     throw error;
   }
 };
 
-// Run initial cleanup (duplicates + orphaned entries)
 export const runInitialCleanup = async () => {
   try {
     console.log("\n🔧 === RUNNING INITIAL CLEANUP ===");
-    
-    // Clean duplicates
     const cleanedDuplicates = await cleanupDuplicateOrders();
-    if (cleanedDuplicates > 0) {
-      console.log(`✅ Cleaned up ${cleanedDuplicates} sets of duplicates`);
-    }
-    
-    // Clean orphaned entries
     const cleanedOrphans = await removeOrphanedStockCounts();
-    if (cleanedOrphans > 0) {
-      console.log(`✅ Removed ${cleanedOrphans} orphaned entries`);
-    }
-    
     console.log("=== INITIAL CLEANUP COMPLETE ===\n");
-    
-    return {
-      duplicates: cleanedDuplicates,
-      orphans: cleanedOrphans
-    };
+    return { duplicates: cleanedDuplicates, orphans: cleanedOrphans };
   } catch (error) {
     console.error("❌ Initial cleanup failed:", error);
-    return {
-      duplicates: 0,
-      orphans: 0
-    };
+    return { duplicates: 0, orphans: 0 };
   }
 };

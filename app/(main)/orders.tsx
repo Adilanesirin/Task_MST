@@ -1,5 +1,6 @@
 import { getPendingOrders } from "@/utils/sync";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
@@ -15,6 +16,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import Toast from "react-native-toast-message";
 
 const { width } = Dimensions.get('window');
 
@@ -53,6 +55,7 @@ export default function OrdersScreen() {
   const router = useRouter();
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingItems, setPendingItems] = useState(0);
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
   const loadPendingCount = async () => {
     try {
@@ -72,6 +75,13 @@ export default function OrdersScreen() {
       
       console.log("📊 Total pending items:", totalItems);
       setPendingItems(totalItems);
+
+      const licenseType = await AsyncStorage.getItem("license_type");
+      const licenseTypeFallback = await AsyncStorage.getItem("licenseType");
+      const demoKey = await AsyncStorage.getItem("demoLicenseKey");
+
+      const isDemo = licenseType === "DEMO" || licenseTypeFallback === "DEMO" || !!demoKey;
+      setIsDemoMode(isDemo);
     } catch (error) {
       console.error("Error loading pending count:", error);
       setPendingCount(0);
@@ -106,7 +116,7 @@ export default function OrdersScreen() {
             <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
           </TouchableOpacity>
           <View style={styles.headerTextContainer}>
-            <Text style={styles.headerTitle}>Stock Tracker</Text>
+            <Text style={styles.headerTitle}>Stock Taking</Text>
             <Text style={styles.headerSubtitle}>Workflow Dashboard</Text>
           </View>
           <View style={styles.headerIconWrapper}>
@@ -125,10 +135,20 @@ export default function OrdersScreen() {
           {orderRoutes.map((route, index) => (
             <Pressable
               key={route.name}
-              onPress={() => router.push(route.path)}
+              onPress={() => {
+                if (route.name === "Upload" && isDemoMode) {
+                  Toast.show({
+                    type: "info",
+                    text1: "Demo Mode",
+                    text2: "Upload is disabled for demo license users.",
+                  });
+                  return;
+                }
+                router.push(route.path);
+              }}
               style={({ pressed }) => [
                 styles.card,
-                pressed && styles.cardPressed,
+                pressed && !(route.name === "Upload" && isDemoMode) && styles.cardPressed,
               ]}
             >
               <LinearGradient
@@ -150,7 +170,11 @@ export default function OrdersScreen() {
                       <View style={styles.cardIconGlow} />
                     </View>
                     <View style={styles.cardBadge}>
-                      <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
+                      <Ionicons
+                        name={route.name === "Upload" && isDemoMode ? "lock-closed" : "arrow-forward"}
+                        size={14}
+                        color="#FFFFFF"
+                      />
                     </View>
                   </View>
 
@@ -177,6 +201,17 @@ export default function OrdersScreen() {
                         }
                       </Text>
                       <View style={styles.alertPulse} />
+                    </View>
+                  )}
+
+                  {route.name === "Upload" && isDemoMode && (
+                    <View style={styles.demoLockBanner}>
+                      <View style={styles.demoLockIcon}>
+                        <Ionicons name="lock-closed" size={14} color="#7E57C2" />
+                      </View>
+                      <Text style={styles.demoLockText}>
+                        Not available in Demo mode
+                      </Text>
                     </View>
                   )}
                 </View>
@@ -424,6 +459,30 @@ const styles = StyleSheet.create({
     height: 7,
     borderRadius: 3.5,
     backgroundColor: "#FF6F00",
+  },
+
+  demoLockBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 12,
+    gap: 8,
+    marginTop: 8,
+  },
+  demoLockIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    backgroundColor: "#EDE7F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  demoLockText: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#7E57C2",
   },
 
   footer: {

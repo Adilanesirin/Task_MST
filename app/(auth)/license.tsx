@@ -1,3 +1,6 @@
+// app/(auth)/license.tsx
+// TaskMST License Activation - Flow mirrors TaskPMS exactly
+
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Application from "expo-application";
@@ -24,6 +27,12 @@ import {
 } from "react-native";
 import Toast from "react-native-toast-message";
 
+// ─── API endpoints for TaskMST ───────────────────────────────────────────────
+const CHECK_LICENSE_API =
+  "https://activate.imcbs.com/mobileapp/api/project/taskmst/";
+const REGISTER_DEVICE_API =
+  "https://activate.imcbs.com/mobileapp/api/project/taskmst/license/register/";
+
 export default function License() {
   const [licenseKey, setLicenseKey] = useState("");
   const [loading, setLoading] = useState(false);
@@ -31,67 +40,86 @@ export default function License() {
   const [deviceId, setDeviceId] = useState("");
   const [deviceName, setDeviceName] = useState("");
   const [licenseError, setLicenseError] = useState(false);
+  const [permissionError, setPermissionError] = useState(false);
 
   const router = useRouter();
 
-  const requestAndroidPermissions = async () => {
-    if (Platform.OS !== 'android') {
-      return true;
-    }
-
+  // ─── 1. Permission ──────────────────────────────────────────────────────────
+  const requestAndroidPermissions = async (): Promise<boolean> => {
+    if (Platform.OS !== "android") return true;
     try {
       const granted = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE,
         {
           title: "Device ID Permission",
-          message: "This app needs access to your device ID for license activation.",
+          message:
+            "This app needs access to your device ID for license activation.",
           buttonNeutral: "Ask Me Later",
           buttonNegative: "Cancel",
-          buttonPositive: "OK"
+          buttonPositive: "OK",
         }
       );
-
       if (granted === PermissionsAndroid.RESULTS.GRANTED) {
         console.log("✅ Phone state permission granted");
+        setPermissionError(false);
         return true;
       } else {
         console.log("❌ Phone state permission denied");
+        setPermissionError(true);
         return false;
       }
     } catch (err) {
       console.warn("Permission request error:", err);
+      setPermissionError(true);
       return false;
     }
   };
 
-  const getDeviceId = async () => {
+  // ─── 2. UUID helpers ─────────────────────────────────────────────────────────
+  const generateUUID = () =>
+    "xxxxxxxxxxxxxxxx".replace(/[x]/g, () =>
+      (Math.random() * 16 | 0).toString(16)
+    );
+
+  const generateUUIDv4 = () =>
+    "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+
+  // ─── 3. Device ID ───────────────────────────────────────────────────────────
+  // Priority: androidId (sync) → getAndroidId() (async) → stored → generated UUID
+  const getDeviceId = async (): Promise<string> => {
     try {
-      let id = null;
-      
       if (Platform.OS === "android") {
-        // Request permission first
         const hasPermission = await requestAndroidPermissions();
-        
+
         if (!hasPermission) {
-          throw new Error("Permission denied. Please grant phone state permission to use this app.");
+          const stored = await AsyncStorage.getItem("device_hardware_id");
+          if (stored) {
+            console.log("✅ Using stored device ID (no permission):", stored);
+            return stored;
+          }
+          const uuid = generateUUID();
+          await AsyncStorage.setItem("device_hardware_id", uuid);
+          console.log("✅ Generated UUID (no permission):", uuid);
+          return uuid;
         }
 
-        // Method 1: Application.androidId
-        id = Application.androidId;
+        // Method 1: sync androidId
+        let id: string | null = Application.androidId ?? null;
         console.log("Method 1 - Application.androidId:", id);
-        
         if (id && id !== "null" && id !== "" && id !== "unknown") {
           console.log("✅ Using Application.androidId:", id);
           await AsyncStorage.setItem("device_hardware_id", id);
           return id;
         }
 
-        // Method 2: Try getting from native module directly
-        if (Application.getAndroidId) {
+        // Method 2: async getAndroidId
+        if (typeof (Application as any).getAndroidId === "function") {
           try {
-            id = await Application.getAndroidId();
+            id = await (Application as any).getAndroidId();
             console.log("Method 2 - Application.getAndroidId():", id);
-            
             if (id && id !== "null" && id !== "" && id !== "unknown") {
               console.log("✅ Using Application.getAndroidId():", id);
               await AsyncStorage.setItem("device_hardware_id", id);
@@ -102,157 +130,147 @@ export default function License() {
           }
         }
 
-        // Method 3: Check if we have a previously stored device ID
-        const storedId = await AsyncStorage.getItem("device_hardware_id");
-        if (storedId) {
-          console.log("✅ Using stored device ID:", storedId);
-          return storedId;
+        // Method 3: stored
+        const stored = await AsyncStorage.getItem("device_hardware_id");
+        if (stored) {
+          console.log("✅ Using stored device ID:", stored);
+          return stored;
         }
 
-        // If all methods fail, generate a UUID-based persistent ID
-        console.log("⚠️ Android ID not available, generating persistent UUID");
-        const uuid = 'xxxxxxxxxxxxxxxx'.replace(/[x]/g, function(c) {
-          const r = Math.random() * 16 | 0;
-          return r.toString(16);
-        });
-        
-        // Store it permanently
+        // Method 4: generate persistent UUID
+        const uuid = generateUUID();
         await AsyncStorage.setItem("device_hardware_id", uuid);
         console.log("✅ Generated and stored UUID:", uuid);
         return uuid;
-        
       } else if (Platform.OS === "ios") {
-        // Get iOS IDFV
-        id = await Application.getIosIdForVendorAsync();
-        
-        console.log("iOS IDFV from Application:", id);
-        
+        let id: string | null = null;
+        try {
+          id = await Application.getIosIdForVendorAsync();
+        } catch (_) {}
         if (id && id !== "null" && id !== "") {
-          console.log("✅ Using iOS IDFV:", id);
           await AsyncStorage.setItem("device_hardware_id", id);
           return id;
         }
-
-        // Fallback for iOS - check stored ID
-        const storedId = await AsyncStorage.getItem("device_hardware_id");
-        if (storedId) {
-          console.log("✅ Using stored iOS device ID:", storedId);
-          return storedId;
-        }
-
-        // Generate UUID for iOS fallback
-        const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-          const r = Math.random() * 16 | 0;
-          const v = c === 'x' ? r : (r & 0x3 | 0x8);
-          return v.toString(16);
-        });
-        
+        const stored = await AsyncStorage.getItem("device_hardware_id");
+        if (stored) return stored;
+        const uuid = generateUUIDv4();
         await AsyncStorage.setItem("device_hardware_id", uuid);
-        console.log("✅ Generated and stored iOS UUID:", uuid);
         return uuid;
-        
       } else {
         throw new Error("Unsupported platform: " + Platform.OS);
       }
-      
     } catch (error) {
-      console.error("❌ CRITICAL ERROR getting device ID:", error);
-      
-      // Last resort - try to get stored ID
+      console.error("❌ ERROR getting device ID:", error);
       try {
-        const storedId = await AsyncStorage.getItem("device_hardware_id");
-        if (storedId) {
-          console.log("Using emergency stored device ID");
-          return storedId;
-        }
-      } catch (e) {
-        console.error("Storage error:", e);
-      }
-      
-      Alert.alert(
-        "Device ID Error",
-        error.message || "Unable to get device identifier",
-        [
-          {
-            text: "Retry",
-            onPress: () => {
-              initializeApp();
-            }
-          }
-        ]
-      );
-      
-      throw error;
+        const stored = await AsyncStorage.getItem("device_hardware_id");
+        if (stored) return stored;
+      } catch (_) {}
+      const fallback = generateUUID();
+      try {
+        await AsyncStorage.setItem("device_hardware_id", fallback);
+      } catch (_) {}
+      return fallback;
     }
   };
 
-  const getDeviceName = async () => {
+  // ─── 4. Device name ──────────────────────────────────────────────────────────
+  const getDeviceName = async (): Promise<string> => {
     try {
-      let name = "";
-      
       if (Platform.OS === "android") {
-        const brand = Device.brand || "";
-        const modelName = Device.modelName || "";
-        name = `${brand} ${modelName}`.trim() || "Android Device";
+        return (
+          `${Device.brand || ""} ${Device.modelName || ""}`.trim() ||
+          "Android Device"
+        );
       } else if (Platform.OS === "ios") {
-        const modelName = Device.modelName || "";
-        name = modelName || "iOS Device";
-      } else {
-        name = "Unknown Device";
+        return Device.modelName || "iOS Device";
       }
-      
-      console.log("📱 Device Name:", name);
-      return name;
-    } catch (error) {
-      console.error("Error getting device name:", error);
+      return "Unknown Device";
+    } catch {
       return "Unknown Device";
     }
   };
 
+  // ─── 5. Demo license validator ──────────────────────────────────────────────
+  const validateDemoLicense = async (demoKey: string) => {
+    try {
+      console.log("🎭 Validating demo license:", demoKey);
+
+      const response = await fetch(CHECK_LICENSE_API, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success)
+        return { valid: false, message: "Failed to validate demo license" };
+
+      if (!data.demo_licenses || data.demo_licenses.length === 0)
+        return { valid: false, message: "No demo licenses available" };
+
+      const demoLicense = data.demo_licenses.find(
+        (d: any) => d.demo_license === demoKey.trim()
+      );
+
+      if (!demoLicense)
+        return { valid: false, message: "Invalid demo license key" };
+
+      if (demoLicense.status.toLowerCase() !== "active")
+        return {
+          valid: false,
+          message: `Demo license is ${demoLicense.status}`,
+        };
+
+      const expiryDate = new Date(demoLicense.expires_at);
+      const today = new Date();
+      if (expiryDate < today)
+        return { valid: false, message: "Demo license has expired" };
+
+      const daysRemaining = Math.ceil(
+        (expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+      );
+
+      console.log("✅ Demo license valid:", demoLicense.company);
+      return {
+        valid: true,
+        company: demoLicense.company,
+        clientId: demoLicense.client_id,
+        demoLicense: demoLicense.demo_license,
+        expiresAt: demoLicense.expires_at,
+        daysRemaining,
+      };
+    } catch (error) {
+      console.error("Demo validation error:", error);
+      return { valid: false, message: "Network error during demo validation" };
+    }
+  };
+
+  // ─── 6. Check if this device is registered on the server ───────────────────
   const checkDeviceRegistration = async (deviceIdToCheck: string) => {
     try {
-      const CHECK_LICENSE_API = `https://activate.imcbs.com/mobileapp/api/project/taskmst/`;
-
       console.log("🔍 Checking device registration for:", deviceIdToCheck);
 
       const response = await fetch(CHECK_LICENSE_API, {
         method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
       });
-
       const data = await response.json();
-      console.log("API Response:", data);
 
-      if (!response.ok || !data.success) {
-        console.log("API check failed");
+      if (!response.ok || !data.success) return { found: false };
+      if (!data.customers || data.customers.length === 0)
         return { found: false };
-      }
-
-      if (!data.customers || data.customers.length === 0) {
-        console.log("No customers found");
-        return { found: false };
-      }
 
       for (const customer of data.customers) {
-        if (customer.registered_devices && customer.registered_devices.length > 0) {
+        if (customer.registered_devices?.length > 0) {
           const deviceFound = customer.registered_devices.some(
             (device: any) => device.device_id === deviceIdToCheck
           );
-
           if (deviceFound) {
-            console.log("✅ Device found in customer:", customer.customer_name);
-            return {
-              found: true,
-              customer: customer,
-              projectName: data.project_name
-            };
+            console.log("✅ Device found for customer:", customer.customer_name);
+            return { found: true, customer, projectName: data.project_name };
           }
         }
       }
-
-      console.log("❌ Device not found in any customer");
+      console.log("❌ Device not found on server");
       return { found: false };
     } catch (error) {
       console.error("Error checking device registration:", error);
@@ -260,7 +278,8 @@ export default function License() {
     }
   };
 
-  const storeLicenseDataSafely = async (data: {
+  // ─── 7. Save license data to AsyncStorage ───────────────────────────────────
+  const storeLicenseData = async (data: {
     licenseKey: string;
     deviceId: string;
     customerName: string;
@@ -268,58 +287,46 @@ export default function License() {
     clientId: string;
   }): Promise<boolean> => {
     try {
-      console.log("💾 Storing license data...");
-      console.log("  - License Key:", data.licenseKey);
-      console.log("  - Device ID:", data.deviceId);
-      console.log("  - Client ID:", data.clientId);
-      console.log("  - Customer:", data.customerName);
-
+      console.log("💾 Storing license data for device:", data.deviceId);
       await AsyncStorage.multiSet([
         ["licenseActivated", "true"],
+        ["licenseType", "PRODUCTION"],
         ["licenseKey", data.licenseKey],
         ["deviceId", data.deviceId],
+        ["device_hardware_id", data.deviceId],
         ["customerName", data.customerName],
         ["projectName", data.projectName],
         ["clientId", data.clientId],
       ]);
-
-      const verification = await AsyncStorage.multiGet([
+      const check = await AsyncStorage.multiGet([
         "licenseActivated",
         "licenseKey",
         "deviceId",
-        "customerName",
-        "projectName",
         "clientId",
       ]);
-
-      console.log("✅ Storage verification:");
-      verification.forEach(([key, value]) => {
-        console.log(`   - ${key}: ${value || "NULL"}`);
-      });
-
-      const allStored = verification.every(([_, value]) => value !== null);
-
-      if (allStored) {
-        console.log("✅ All license data stored successfully");
-        return true;
-      } else {
-        console.error("❌ Some license data failed to store");
-        return false;
-      }
+      const allOk = check.every(([, v]) => v !== null);
+      console.log(allOk ? "✅ License data stored" : "❌ Some keys missing");
+      return allOk;
     } catch (error) {
       console.error("❌ Error storing license data:", error);
       return false;
     }
   };
 
+  // ─── 8. App initialization  ─────────────────────────────────────────────────
+  // This is the FIXED flow matching PMS exactly:
+  //  A) Get device ID + name
+  //  B) Read stored license state
+  //  C) DEMO check → validate → redirect or clear
+  //  D) PRODUCTION check → verify on server → redirect or clear
+  //  E) No valid license → show activation form
   const initializeApp = async () => {
     try {
       setChecking(true);
 
-      // Get device information
+      // A: Device info
       const id = await getDeviceId();
       setDeviceId(id);
-
       const name = await getDeviceName();
       setDeviceName(name);
 
@@ -329,70 +336,98 @@ export default function License() {
       console.log("Platform:", Platform.OS);
       console.log("Is Physical Device:", Device.isDevice);
 
-      // Check AsyncStorage for license activation status
+      // B: Read stored state
       const licenseActivated = await AsyncStorage.getItem("licenseActivated");
-      const storedDeviceId = await AsyncStorage.getItem("deviceId");
+      const licenseType = await AsyncStorage.getItem("licenseType");
       const storedLicenseKey = await AsyncStorage.getItem("licenseKey");
       const storedClientId = await AsyncStorage.getItem("clientId");
-      
+      const demoLicenseKey = await AsyncStorage.getItem("demoLicenseKey");
+
       console.log("📱 Local License Status:");
       console.log("  - License Activated:", licenseActivated);
-      console.log("  - Stored Device ID:", storedDeviceId);
-      console.log("  - Current Device ID:", id);
+      console.log("  - License Type:", licenseType);
       console.log("  - License Key:", storedLicenseKey ? "exists" : "none");
+      console.log(
+        "  - Demo License Key:",
+        demoLicenseKey ? "exists" : "none"
+      );
       console.log("  - Client ID:", storedClientId ? "exists" : "none");
-      console.log("  - Device IDs Match:", storedDeviceId === id);
 
-      // Device ID Mismatch Detection
-      if (storedDeviceId && storedDeviceId !== id) {
-        console.log("❌ DEVICE ID MISMATCH DETECTED!");
-        console.log("   Stored Device ID:", storedDeviceId);
-        console.log("   Current Device ID:", id);
-        console.log("   This appears to be a different device");
-        console.log("   Clearing old license data...");
-        
-        await AsyncStorage.multiRemove([
-          "licenseActivated",
-          "licenseKey",
-          "customerName",
-          "projectName",
-          "clientId",
-        ]);
-        
-        await AsyncStorage.setItem("deviceId", id);
-        
-        Toast.show({
-          type: "info",
-          text1: "New Device Detected",
-          text2: "Please activate your license on this device",
-          visibilityTime: 3000,
-        });
-        
-        setChecking(false);
-        return;
+      // C: DEMO license check
+      if (
+        licenseActivated === "true" &&
+        licenseType === "DEMO" &&
+        demoLicenseKey &&
+        storedClientId
+      ) {
+        console.log("🎭 Demo license found locally, validating...");
+        const demoValidation = await validateDemoLicense(demoLicenseKey);
+
+        if (demoValidation.valid) {
+          console.log("✅ Demo license still valid");
+          console.log("   Company:", demoValidation.company);
+          console.log("   Days remaining:", demoValidation.daysRemaining);
+
+          await AsyncStorage.setItem(
+            "demoDaysRemaining",
+            String(demoValidation.daysRemaining)
+          );
+
+          Toast.show({
+            type: "success",
+            text1: "Welcome Back! 🎭",
+            text2: `${demoValidation.company} - Demo Mode`,
+            visibilityTime: 2000,
+          });
+          setTimeout(() => router.replace("/(auth)/pairing"), 500);
+          return;
+        } else {
+          console.log(
+            "❌ Demo license expired or invalid:",
+            demoValidation.message
+          );
+          await AsyncStorage.multiRemove([
+            "licenseActivated",
+            "licenseType",
+            "demoLicenseKey",
+            "demoCompany",
+            "clientId",
+            "customerName",
+            "demoExpiresAt",
+            "demoDaysRemaining",
+            "demoStatus",
+          ]);
+          Toast.show({
+            type: "error",
+            text1: "Demo License Expired",
+            text2: demoValidation.message || "Please activate a new license",
+          });
+        }
       }
 
-      if (licenseActivated === "true" && storedLicenseKey && storedClientId && storedDeviceId === id) {
-        console.log("✅ Complete local license found and device ID matches");
-        console.log("   Verifying with server...");
-        
+      // D: PRODUCTION license check
+      if (licenseActivated === "true" && storedLicenseKey && storedClientId) {
+        console.log("✅ Production license found, verifying with server...");
         const registrationCheck = await checkDeviceRegistration(id);
-        
+
         if (registrationCheck.found) {
           console.log("✅ Server confirms device is registered");
-          console.log("   Customer:", registrationCheck.customer.customer_name);
-          console.log("   License Status:", registrationCheck.customer.status);
-          
-          const storeSuccess = await storeLicenseDataSafely({
-            licenseKey: registrationCheck.customer.license_key,
+          console.log(
+            "   Customer:",
+            registrationCheck.customer.customer_name
+          );
+
+          const storeSuccess = await storeLicenseData({
+            licenseKey:
+              registrationCheck.customer.license_key || storedLicenseKey,
             deviceId: id,
             customerName: registrationCheck.customer.customer_name,
-            projectName: registrationCheck.projectName,
-            clientId: registrationCheck.customer.client_id,
+            projectName: registrationCheck.projectName || "",
+            clientId:
+              registrationCheck.customer.client_id || storedClientId,
           });
 
           if (!storeSuccess) {
-            console.error("❌ Failed to verify storage");
             Toast.show({
               type: "error",
               text1: "Storage Error",
@@ -401,41 +436,39 @@ export default function License() {
             setChecking(false);
             return;
           }
-          
+
           Toast.show({
             type: "success",
             text1: "Welcome Back! 🎉",
-            text2: `${registrationCheck.customer.customer_name}`,
+            text2: registrationCheck.customer.customer_name,
             visibilityTime: 2000,
           });
-
-          setTimeout(() => {
-            router.replace("/(auth)/pairing");
-          }, 500);
+          setTimeout(() => router.replace("/(auth)/pairing"), 500);
           return;
         } else {
-          console.log("⚠️ Device not found on server");
-          console.log("   License may have been revoked or expired");
-          
-          await AsyncStorage.multiRemove([
-            "licenseActivated",
-            "licenseKey",
-            "customerName",
-            "projectName",
-            "clientId",
-          ]);
-          
+          console.log(
+            "⚠️ Device not found on server — clearing stale license"
+          );
           Toast.show({
             type: "info",
             text1: "License Reset",
             text2: "Please activate your license again",
           });
+          await AsyncStorage.multiRemove([
+            "licenseActivated",
+            "licenseKey",
+            "deviceId",
+            "clientId",
+            "customerName",
+            "projectName",
+            "licenseType",
+          ]);
         }
       }
 
+      // E: No valid license
       console.log("Showing license activation screen");
       setChecking(false);
-      
     } catch (error) {
       console.error("Initialization error:", error);
       setChecking(false);
@@ -446,14 +479,31 @@ export default function License() {
     initializeApp();
   }, []);
 
+  // ─── 9. Retry permission ─────────────────────────────────────────────────────
+  const handleRetryPermission = async () => {
+    setPermissionError(false);
+    const hasPermission = await requestAndroidPermissions();
+    const id = await getDeviceId();
+    setDeviceId(id);
+    if (hasPermission) {
+      Toast.show({
+        type: "success",
+        text1: "Permission Granted",
+        text2: "You can now activate your license",
+      });
+    } else {
+      Toast.show({
+        type: "info",
+        text1: "Permission Denied",
+        text2: "A unique device ID will be generated instead",
+      });
+    }
+  };
+
+  // ─── 10. Activate button handler ────────────────────────────────────────────
   const handleActivate = async () => {
     if (!licenseKey.trim()) {
       setLicenseError(true);
-      return;
-    }
-
-    if (!deviceId) {
-      Alert.alert("Error", "Device ID not available. Please try again.");
       return;
     }
 
@@ -461,22 +511,75 @@ export default function License() {
     setLicenseError(false);
 
     try {
-      const CHECK_LICENSE_API = `https://activate.imcbs.com/mobileapp/api/project/taskmst/`;
+      const isDemoLicense = licenseKey.trim().toUpperCase().startsWith("DEMO-");
+
+      // ── DEMO flow ────────────────────────────────────────────────────────────
+      if (isDemoLicense) {
+        console.log("🎭 Demo license detected");
+
+        const demoValidation = await validateDemoLicense(licenseKey.trim());
+
+        if (!demoValidation.valid) {
+          Toast.show({
+            type: "error",
+            text1: "Demo License Invalid",
+            text2: demoValidation.message,
+          });
+          return;
+        }
+
+        await AsyncStorage.multiSet([
+          ["licenseActivated", "true"],
+          ["licenseType", "DEMO"],
+          ["license_type", "DEMO"],
+          ["demoLicenseKey", licenseKey.trim()],
+          ["demoCompany", demoValidation.company],
+          ["clientId", demoValidation.clientId],
+          ["customerName", demoValidation.company],
+          ["demoExpiresAt", demoValidation.expiresAt],
+          ["demoDaysRemaining", String(demoValidation.daysRemaining)],
+          ["demoStatus", "Active"],
+        ]);
+
+        console.log("✅ Demo license stored");
+        Toast.show({
+          type: "success",
+          text1: "Demo Activated! 🎉",
+          text2: `Welcome ${demoValidation.company}! ${demoValidation.daysRemaining} days remaining`,
+          visibilityTime: 3000,
+        });
+        setTimeout(() => router.replace("/(auth)/pairing"), 500);
+        return;
+      }
+
+      // ── PRODUCTION flow ──────────────────────────────────────────────────────
+      if (!deviceId) {
+        Alert.alert(
+          "Device ID Error",
+          "Device ID not available. Please restart the app.",
+          [
+            {
+              text: "Retry",
+              onPress: async () => {
+                const id = await getDeviceId();
+                setDeviceId(id);
+              },
+            },
+            { text: "OK" },
+          ]
+        );
+        return;
+      }
 
       console.log("=== LICENSE ACTIVATION START ===");
       console.log("License Key:", licenseKey.trim());
       console.log("Device ID:", deviceId);
       console.log("Device Name:", deviceName);
-      console.log("Platform:", Platform.OS);
-      console.log("Is Physical Device:", Device.isDevice);
 
       const checkResponse = await fetch(CHECK_LICENSE_API, {
         method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
       });
-
       const checkData = await checkResponse.json();
 
       if (!checkResponse.ok || !checkData.success) {
@@ -485,7 +588,6 @@ export default function License() {
           text1: "Validation Failed",
           text2: checkData.message || "Failed to validate license.",
         });
-        setLoading(false);
         return;
       }
 
@@ -495,7 +597,6 @@ export default function License() {
           text1: "Invalid License",
           text2: "No customer found for this license",
         });
-        setLoading(false);
         return;
       }
 
@@ -509,25 +610,23 @@ export default function License() {
           text1: "Invalid License",
           text2: "The license key you entered is not valid",
         });
-        setLoading(false);
         return;
       }
 
-      console.log("✅ License key valid for customer:", customer.customer_name);
-      console.log("Client ID:", customer.client_id);
+      console.log("✅ License valid for:", customer.customer_name);
 
+      // Already registered on this device?
       const isAlreadyRegistered = customer.registered_devices?.some(
         (device: any) => device.device_id === deviceId
       );
 
       if (isAlreadyRegistered) {
         console.log("✅ Device already registered");
-        
-        const storeSuccess = await storeLicenseDataSafely({
+        const storeSuccess = await storeLicenseData({
           licenseKey: licenseKey.trim(),
-          deviceId: deviceId,
+          deviceId,
           customerName: customer.customer_name,
-          projectName: checkData.project_name,
+          projectName: checkData.project_name || "",
           clientId: customer.client_id,
         });
 
@@ -537,7 +636,6 @@ export default function License() {
             text1: "Storage Error",
             text2: "Failed to save license data. Please try again.",
           });
-          setLoading(false);
           return;
         }
 
@@ -546,57 +644,46 @@ export default function License() {
           text1: "Already Registered",
           text2: `Welcome back ${customer.customer_name}!`,
         });
-
-        setTimeout(() => {
-          router.replace("/(auth)/pairing");
-        }, 500);
-        setLoading(false);
+        setTimeout(() => router.replace("/(auth)/pairing"), 500);
         return;
       }
 
+      // Check device limit
       if (
-        customer.license_summary.registered_count >=
-        customer.license_summary.max_devices
+        customer.license_summary?.registered_count >=
+        customer.license_summary?.max_devices
       ) {
         Toast.show({
           type: "error",
           text1: "License Limit Reached",
           text2: `Maximum devices (${customer.license_summary.max_devices}) already registered`,
         });
-        setLoading(false);
         return;
       }
 
+      // Register new device
       console.log("📝 Registering new device...");
-      const registrationPayload = {
-        license_key: licenseKey.trim(),
-        device_id: deviceId,
-        device_name: deviceName,
-        client_id: customer.client_id
-      };
-      console.log(JSON.stringify(registrationPayload, null, 2));
-
-      const POST_DEVICE_API = `https://activate.imcbs.com/mobileapp/api/project/taskmst/license/register/`;
-
-      const deviceResponse = await fetch(POST_DEVICE_API, {
+      const deviceResponse = await fetch(REGISTER_DEVICE_API, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(registrationPayload),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          license_key: licenseKey.trim(),
+          device_id: deviceId,
+          device_name: deviceName,
+          client_id: customer.client_id,
+        }),
       });
-
       const deviceData = await deviceResponse.json();
       console.log("Registration response:", deviceData);
 
       if (deviceResponse.ok && deviceData.success) {
         console.log("✅ Device registered successfully");
-        
-        const storeSuccess = await storeLicenseDataSafely({
+
+        const storeSuccess = await storeLicenseData({
           licenseKey: licenseKey.trim(),
-          deviceId: deviceId,
+          deviceId,
           customerName: customer.customer_name,
-          projectName: checkData.project_name,
+          projectName: checkData.project_name || "",
           clientId: customer.client_id,
         });
 
@@ -604,9 +691,9 @@ export default function License() {
           Toast.show({
             type: "error",
             text1: "Storage Error",
-            text2: "Registration succeeded but failed to save. Please activate again.",
+            text2:
+              "Registration succeeded but failed to save. Please activate again.",
           });
-          setLoading(false);
           return;
         }
 
@@ -615,10 +702,7 @@ export default function License() {
           text1: "Success! 🎉",
           text2: `Welcome ${customer.customer_name}!`,
         });
-
-        setTimeout(() => {
-          router.replace("/(auth)/pairing");
-        }, 500);
+        setTimeout(() => router.replace("/(auth)/pairing"), 500);
       } else {
         Toast.show({
           type: "error",
@@ -638,10 +722,11 @@ export default function License() {
     }
   };
 
+  // ─── Social / email helpers ──────────────────────────────────────────────────
   const handleSocialLink = async (url: string) => {
     try {
       await Linking.openURL(url);
-    } catch (error) {
+    } catch {
       Alert.alert("Error", "Failed to open link");
     }
   };
@@ -649,19 +734,22 @@ export default function License() {
   const handleEmail = async () => {
     try {
       await Linking.openURL("mailto:info@imcbs.com");
-    } catch (error) {
+    } catch {
       Alert.alert("Error", "Failed to open email");
     }
   };
 
+  // ─── Render: checking ────────────────────────────────────────────────────────
   if (checking) {
     return (
-      <View style={{
-        flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-        backgroundColor: '#7E57C2'
-      }}>
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: "#7E57C2",
+        }}
+      >
         <ActivityIndicator size="large" color="white" />
         <Text style={{ color: "white", marginTop: 16, fontSize: 16 }}>
           Checking registration...
@@ -670,10 +758,84 @@ export default function License() {
     );
   }
 
+  // ─── Render: permission error ────────────────────────────────────────────────
+  if (permissionError && Platform.OS === "android") {
+    return (
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: "white",
+          paddingHorizontal: 24,
+        }}
+      >
+        <View
+          style={{
+            backgroundColor: "#FEF2F2",
+            padding: 24,
+            borderRadius: 16,
+            alignItems: "center",
+          }}
+        >
+          <Ionicons name="warning" size={64} color="#EF4444" />
+          <Text
+            style={{
+              fontSize: 20,
+              fontWeight: "bold",
+              color: "#1F2937",
+              marginTop: 16,
+              textAlign: "center",
+            }}
+          >
+            Device ID Permission Required
+          </Text>
+          <Text
+            style={{
+              color: "#6B7280",
+              marginTop: 12,
+              textAlign: "center",
+              lineHeight: 22,
+            }}
+          >
+            This permission is needed to generate a stable device ID for your
+            license.
+          </Text>
+          <Pressable
+            onPress={handleRetryPermission}
+            style={{
+              backgroundColor: "#7E57C2",
+              borderRadius: 10,
+              paddingVertical: 12,
+              paddingHorizontal: 32,
+              marginTop: 24,
+            }}
+          >
+            <Text style={{ color: "white", fontWeight: "bold", fontSize: 16 }}>
+              Retry
+            </Text>
+          </Pressable>
+          <TouchableOpacity
+            onPress={() => {
+              setPermissionError(false);
+              initializeApp();
+            }}
+            style={{ marginTop: 16 }}
+          >
+            <Text style={{ color: "#6B7280", textDecorationLine: "underline" }}>
+              Continue without permission
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // ─── Render: main license screen ─────────────────────────────────────────────
   return (
-    <View style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
+    <View style={{ flex: 1, backgroundColor: "#F9FAFB" }}>
       <StatusBar backgroundColor="#7E57C2" barStyle="light-content" />
-      
+
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
@@ -684,73 +846,86 @@ export default function License() {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <View style={{ 
-              backgroundColor: '#7E57C2',
-              paddingTop: Platform.OS === 'ios' ? 60 : 40,
-              paddingBottom: 60,
-              alignItems: 'center',
-            }}>
+            {/* Purple header */}
+            <View
+              style={{
+                backgroundColor: "#7E57C2",
+                paddingTop: Platform.OS === "ios" ? 60 : 40,
+                paddingBottom: 60,
+                alignItems: "center",
+              }}
+            >
               <Image
                 source={require("../../assets/images/icon.png")}
                 style={{ width: 60, height: 60, marginBottom: 8 }}
               />
-              <Text style={{ color: 'white', fontSize: 34, fontWeight: 'bold' }}>
+              <Text
+                style={{ color: "white", fontSize: 34, fontWeight: "bold" }}
+              >
                 TaskMST
               </Text>
             </View>
 
-            <View style={{ 
-              flex: 1, 
-              marginTop: 10,
-              paddingHorizontal: 20,
-            }}>
-              <View style={{
-                backgroundColor: '#dbc9fbff',
-                borderRadius: 20,
-                padding: 24,
-                shadowColor: '#db40c1ff',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.1,
-                shadowRadius: 8,
-                elevation: 4,
-              }}>
-                <Text style={{
-                  fontSize: 22,
-                  fontWeight: 'bold',
-                  color: '#3B82F6',
-                  textAlign: 'center',
-                  marginBottom: 20,
-                }}>
+            <View style={{ flex: 1, marginTop: 10, paddingHorizontal: 20 }}>
+              {/* Card */}
+              <View
+                style={{
+                  backgroundColor: "#dbc9fbff",
+                  borderRadius: 20,
+                  padding: 24,
+                  shadowColor: "#7E57C2",
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.1,
+                  shadowRadius: 8,
+                  elevation: 4,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 22,
+                    fontWeight: "bold",
+                    color: "#3B82F6",
+                    textAlign: "center",
+                    marginBottom: 20,
+                  }}
+                >
                   License Activation
                 </Text>
 
-                <View style={{ alignItems: 'center', marginBottom: 24 }}>
+                <View style={{ alignItems: "center", marginBottom: 24 }}>
                   <Ionicons name="key" size={40} color="#7E57C2" />
-                  <Text style={{ 
-                    color: '#6B7280', 
-                    fontSize: 14,
-                    marginTop: 8,
-                    textAlign: 'center'
-                  }}>
+                  <Text
+                    style={{
+                      color: "#6B7280",
+                      fontSize: 14,
+                      marginTop: 8,
+                      textAlign: "center",
+                    }}
+                  >
                     Enter your license key to activate
                   </Text>
                 </View>
 
+                {/* License key input */}
                 <View style={{ marginBottom: 20 }}>
-                  <Text style={{ 
-                    fontSize: 14, 
-                    fontWeight: '600', 
-                    color: '#374151', 
-                    marginBottom: 8,
-                  }}>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: "600",
+                      color: "#374151",
+                      marginBottom: 8,
+                    }}
+                  >
                     License Key
                   </Text>
-                  <View style={{
-                    borderWidth: 2,
-                    borderColor: licenseError ? '#EF4444' : '#E5E7EB',
-                    borderRadius: 12,
-                    backgroundColor: '#F9FAFB',
-                  }}>
+                  <View
+                    style={{
+                      borderWidth: 2,
+                      borderColor: licenseError ? "#EF4444" : "#E5E7EB",
+                      borderRadius: 12,
+                      backgroundColor: "#F9FAFB",
+                    }}
+                  >
                     <TextInput
                       value={licenseKey}
                       onChangeText={(text) => {
@@ -766,25 +941,28 @@ export default function License() {
                         paddingHorizontal: 14,
                         paddingVertical: 12,
                         fontSize: 15,
-                        color: '#1F2937',
+                        color: "#1F2937",
                       }}
                     />
                   </View>
                   {licenseError && (
-                    <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>
+                    <Text
+                      style={{ color: "#EF4444", fontSize: 12, marginTop: 4 }}
+                    >
                       Please enter a valid license key
                     </Text>
                   )}
                 </View>
 
+                {/* Activate button */}
                 <Pressable
                   onPress={handleActivate}
                   disabled={loading}
                   style={{
-                    backgroundColor: loading ? '#9575CD' : '#7E57C2',
+                    backgroundColor: loading ? "#9575CD" : "#7E57C2",
                     borderRadius: 12,
                     paddingVertical: 14,
-                    shadowColor: '#7E57C2',
+                    shadowColor: "#7E57C2",
                     shadowOffset: { width: 0, height: 2 },
                     shadowOpacity: 0.2,
                     shadowRadius: 4,
@@ -792,52 +970,79 @@ export default function License() {
                   }}
                 >
                   {loading ? (
-                    <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        justifyContent: "center",
+                        alignItems: "center",
+                      }}
+                    >
                       <ActivityIndicator color="white" size="small" />
-                      <Text style={{ color: 'white', fontWeight: '600', fontSize: 16, marginLeft: 8 }}>
+                      <Text
+                        style={{
+                          color: "white",
+                          fontWeight: "600",
+                          fontSize: 16,
+                          marginLeft: 8,
+                        }}
+                      >
                         Validating...
                       </Text>
                     </View>
                   ) : (
-                    <Text style={{ textAlign: 'center', color: 'white', fontWeight: '600', fontSize: 16 }}>
+                    <Text
+                      style={{
+                        textAlign: "center",
+                        color: "white",
+                        fontWeight: "600",
+                        fontSize: 16,
+                      }}
+                    >
                       🔐 Activate License
                     </Text>
                   )}
                 </Pressable>
 
-                <View style={{
-                  marginTop: 16,
-                  padding: 12,
-                  backgroundColor: '#F5F3FF',
-                  borderRadius: 10,
-                  borderLeftWidth: 3,
-                  borderLeftColor: '#7E57C2',
-                }}>
-                  <Text style={{ fontSize: 11, color: '#6B7280', lineHeight: 16 }}>
-                    • One-time activation per device{"\n"}
-                    • License stored securely on device{"\n"}
-                    • Auto-login on future app launches{"\n"}
-                    • Device ID persists across app updates
+                {/* Info box */}
+                <View
+                  style={{
+                    marginTop: 16,
+                    padding: 12,
+                    backgroundColor: "#F5F3FF",
+                    borderRadius: 10,
+                    borderLeftWidth: 3,
+                    borderLeftColor: "#7E57C2",
+                  }}
+                >
+                  <Text
+                    style={{ fontSize: 11, color: "#6B7280", lineHeight: 16 }}
+                  >
+                    • One-time activation per device{"\n"}• License stored
+                    securely on device{"\n"}• Auto-login on future app
+                    launches{"\n"}• Device ID persists across app updates
                   </Text>
                 </View>
               </View>
 
-              <View style={{
-                flexDirection: 'row',
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginTop: 56,
-                marginBottom: 20,
-              }}>
+              {/* Social links */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  marginTop: 56,
+                  marginBottom: 20,
+                }}
+              >
                 <TouchableOpacity
                   onPress={handleEmail}
                   style={{
-                    backgroundColor: '#7E57C2',
+                    backgroundColor: "#7E57C2",
                     width: 36,
                     height: 36,
                     borderRadius: 18,
-                    justifyContent: 'center',
-                    alignItems: 'center',
+                    justifyContent: "center",
+                    alignItems: "center",
                     marginHorizontal: 6,
                   }}
                 >
@@ -847,12 +1052,12 @@ export default function License() {
                 <TouchableOpacity
                   onPress={() => handleSocialLink("https://imcbs.com/")}
                   style={{
-                    backgroundColor: '#10B981',
+                    backgroundColor: "#10B981",
                     width: 36,
                     height: 36,
                     borderRadius: 18,
-                    justifyContent: 'center',
-                    alignItems: 'center',
+                    justifyContent: "center",
+                    alignItems: "center",
                     marginHorizontal: 6,
                   }}
                 >
@@ -860,14 +1065,18 @@ export default function License() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  onPress={() => handleSocialLink("https://www.instagram.com/imcbusinesssolution/")}
+                  onPress={() =>
+                    handleSocialLink(
+                      "https://www.instagram.com/imcbusinesssolution/"
+                    )
+                  }
                   style={{
-                    backgroundColor: '#E4405F',
+                    backgroundColor: "#E4405F",
                     width: 36,
                     height: 36,
                     borderRadius: 18,
-                    justifyContent: 'center',
-                    alignItems: 'center',
+                    justifyContent: "center",
+                    alignItems: "center",
                     marginHorizontal: 6,
                   }}
                 >
@@ -875,14 +1084,18 @@ export default function License() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  onPress={() => handleSocialLink("https://www.facebook.com/people/IMC-Business-Solution/100069040622427/")}
+                  onPress={() =>
+                    handleSocialLink(
+                      "https://www.facebook.com/people/IMC-Business-Solution/100069040622427/"
+                    )
+                  }
                   style={{
-                    backgroundColor: '#1877F2',
+                    backgroundColor: "#1877F2",
                     width: 36,
                     height: 36,
                     borderRadius: 18,
-                    justifyContent: 'center',
-                    alignItems: 'center',
+                    justifyContent: "center",
+                    alignItems: "center",
                     marginHorizontal: 6,
                   }}
                 >

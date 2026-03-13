@@ -8,6 +8,7 @@ import {
 } from "@/utils/sync";
 import { uploadPendingOrders } from "@/utils/upload";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import LottieView from "lottie-react-native";
 import React, { useEffect, useState } from "react";
@@ -27,9 +28,17 @@ export default function Upload() {
   const [stats, setStats] = useState<any>({});
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [uploadResult, setUploadResult] = useState<any>(null);
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
   const loadData = async () => {
     try {
+    const licenseType = await AsyncStorage.getItem("license_type");
+    const licenseTypeFallback = await AsyncStorage.getItem("licenseType");
+    const demoKey = await AsyncStorage.getItem("demoLicenseKey");
+
+const isDemo = licenseType === "DEMO" || licenseTypeFallback === "DEMO" || !!demoKey;
+setIsDemoMode(isDemo);
+
       // 🆕 Clean up duplicates AND orphaned entries before loading
       try {
         await cleanupDuplicateOrders();
@@ -65,39 +74,22 @@ export default function Upload() {
     return () => clearInterval(interval);
   }, [loading, uploadSuccess]);
 
-  const handleUpload = async () => {
+  const handleUpload = () => {
+    if (loading) return; // ← guard against double tap
     if (!orders || orders.length === 0) {
-      Toast.show({
-        type: "info",
-        text1: "Nothing to upload",
-        text2: "All entries are already synced.",
-      });
+      Toast.show({ type: "info", text1: "Nothing to upload", text2: "All entries are already synced." });
       return;
     }
 
-    try {
-      setLoading(true);
-      
-      if (orders.length > 10) {
-        Alert.alert(
-          "Confirm Upload",
-          `You are about to upload ${orders.length} orders. Continue?`,
-          [
-            { text: "Cancel", style: "cancel", onPress: () => setLoading(false) },
-            { text: "Upload", onPress: actuallyUpload }
-          ]
-        );
-      } else {
-        actuallyUpload();
-      }
-    } catch (err: any) {
-      console.error("Upload error:", err);
-      Toast.show({
-        type: "error",
-        text1: "❌ Upload Failed",
-        text2: err.message || "Something went wrong.",
-      });
-      setLoading(false);
+    setLoading(true);
+
+    if (orders.length > 10) {
+      Alert.alert("Confirm Upload", `You are about to upload ${orders.length} orders. Continue?`, [
+        { text: "Cancel", style: "cancel", onPress: () => setLoading(false) },
+        { text: "Upload", onPress: actuallyUpload }
+      ]);
+    } else {
+      actuallyUpload();
     }
   };
 
@@ -281,22 +273,36 @@ export default function Upload() {
                 </View>
               </View>
 
-              <Pressable
-                onPress={handleUpload}
-                disabled={loading || orders.length === 0}
-                className={`p-4 rounded-xl ${
-                  orders.length === 0 ? "bg-gray-400" : "bg-orange-500"
-                } shadow-md`}
-              >
-                <Text className="text-white text-center font-semibold text-lg">
-                  {orders.length === 0 ? 'No Orders to Upload' : `Upload ${orders.length} Orders`}
-                </Text>
-              </Pressable>
+              {isDemoMode ? (
+                <View className="p-4 rounded-xl bg-gray-200 items-center gap-y-2">
+                  <Ionicons name="lock-closed" size={24} color="#7E57C2" />
+                  <Text className="text-[#7E57C2] font-bold text-lg">
+                    Upload Locked
+                  </Text>
+                  <Text className="text-gray-500 text-sm text-center">
+                    Upload is not available in Demo mode.{"\n"}Please upgrade to a full license.
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  <Pressable
+                    onPress={handleUpload}
+                    disabled={loading || orders.length === 0}
+                    className={`p-4 rounded-xl ${
+                      orders.length === 0 ? "bg-gray-400" : "bg-orange-500"
+                    } shadow-md`}
+                  >
+                    <Text className="text-white text-center font-semibold text-lg">
+                      {orders.length === 0 ? 'No Orders to Upload' : `Upload ${orders.length} Orders`}
+                    </Text>
+                  </Pressable>
 
-              {orders.length === 0 && (
-                <Text className="text-gray-500 text-center mt-4">
-                  All orders are synced with the server
-                </Text>
+                  {orders.length === 0 && (
+                    <Text className="text-gray-500 text-center mt-4">
+                      All orders are synced with the server
+                    </Text>
+                  )}
+               </>
               )}
             </>
           )}

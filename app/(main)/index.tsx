@@ -1,24 +1,43 @@
 import { deleteUserid, getUserid, logout } from "@/utils/auth";
-import { clearPairing } from "@/utils/pairing";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import { useEffect, useState } from "react";
 import { Alert, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import Toast from "react-native-toast-message";
 
+
 export default function HomeScreen() {
   const router = useRouter();
-  const [username, setUsername] = useState(null);
+  const [username, setUsername] = useState<string | null>(null);
+  const [licenseType, setLicenseType] = useState<string | null>(null);
+  const [demoExpiresAt, setDemoExpiresAt] = useState<string | null>(null);
+  const [demoDaysRemaining, setDemoDaysRemaining] = useState<string | null>(null);
+  
+useEffect(() => {
+  const fetchUserData = async () => {
+    const user = await getUserid();
+    setUsername(user);
+    
+    // Load demo license data
+    const type = await AsyncStorage.getItem("licenseType");
+    setLicenseType(type);
+    
+   if (type === "DEMO") {
+    const expires = await AsyncStorage.getItem("demoExpiresAt");
+    const days = await AsyncStorage.getItem("demoDaysRemaining");
+    const demoKey = await AsyncStorage.getItem("demoLicenseKey");
+    const company = await AsyncStorage.getItem("demoCompany");
+    setDemoExpiresAt(expires);
+    setDemoDaysRemaining(days);
+    console.log("🎭 Demo info loaded - Key:", demoKey, "Company:", company, "Expires:", expires, "Days:", days);
+  }
+  };
 
-  useEffect(() => {
-    const fetchUsername = async () => {
-      const user = await getUserid();
-      setUsername(user);
-    };
-
-    fetchUsername();
-  }, []);
+  fetchUserData();
+}, []);
 
   const handleLogout = async () => {
     Alert.alert(
@@ -31,8 +50,11 @@ export default function HomeScreen() {
           style: "destructive",
           onPress: async () => {
             await logout();
-            await clearPairing();
+           
             await deleteUserid();
+            
+            await SecureStore.deleteItemAsync("userLoggedIn");
+            await SecureStore.deleteItemAsync("user_role");
             router.replace("/(auth)/login");
             Toast.show({
               type: "success",
@@ -92,6 +114,7 @@ export default function HomeScreen() {
 
           {/* Curved User Welcome Card */}
           <View style={styles.curvedUserCard}>
+            {/* Top row: avatar + name always shown */}
             <View style={styles.userInfo}>
               <View style={styles.avatarContainer}>
                 <LinearGradient
@@ -106,6 +129,26 @@ export default function HomeScreen() {
                 <Text style={styles.usernameText}>{username || "User"}</Text>
               </View>
             </View>
+
+            {/* Demo info block below the row — full width, no overflow */}
+            {licenseType === "DEMO" && (
+              <View style={styles.demoInfoContainer}>
+                <View style={styles.demoBadge}>
+                  <Ionicons name="time-outline" size={14} color="#F59E0B" />
+                  <Text style={styles.demoText}>⚠️ DEMO MODE</Text>
+                </View>
+                <Text style={styles.demoExpiryText}>
+                  {demoDaysRemaining
+                    ? `${demoDaysRemaining} day(s) remaining`
+                    : "Demo license active"}
+                </Text>
+                {demoExpiresAt ? (
+                  <Text style={[styles.demoExpiryText, { fontSize: 11, color: "#9CA3AF" }]}>
+                    Expires: {new Date(demoExpiresAt).toLocaleDateString()}
+                  </Text>
+                ) : null}
+              </View>
+            )}
           </View>
         </View>
       </LinearGradient>
@@ -349,13 +392,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.59)',
     zIndex: 1,
-    height: 80,
   },
   
   userInfo: {
     flexDirection: "row",
     alignItems: "center",
-    flex: 1,
   },
   
   avatarContainer: {
@@ -497,5 +538,37 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#9E9E9E",
     fontWeight: "500",
+  },
+    demoInfoContainer: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.3)",
+  },
+
+  demoBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: "flex-start",
+    marginBottom: 4,
+  },
+
+  demoText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#F59E0B",
+    marginLeft: 4,
+    letterSpacing: 0.5,
+  },
+
+  demoExpiryText: {
+    fontSize: 12,
+    color: "#DC2626",
+    fontWeight: "500",
+    marginTop: 2,
   },
 });

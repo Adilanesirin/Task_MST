@@ -2,6 +2,18 @@
 import * as SecureStore from "expo-secure-store";
 import { createEnhancedAPI } from "./api";
 
+
+const sortChronologically = (items: any[]) => {
+  return [...items].sort((a, b) => {
+    const dateA = new Date(a.created_at || 0).getTime();
+    const dateB = new Date(b.created_at || 0).getTime();
+    if (dateA !== dateB) {
+      return dateA - dateB;
+    }
+    return (a.id || 0) - (b.id || 0);
+  });
+};
+
 // Helper function to get user ID from SecureStore
 async function getCurrentUserId(): Promise<string> {
   let userId = await SecureStore.getItemAsync("user_id");
@@ -24,123 +36,71 @@ async function getCurrentUserId(): Promise<string> {
   console.warn("⚠️ No user ID found in SecureStore!");
   return "UNKNOWN_USER";
 }
-
 export async function uploadPendingOrders(orders: any[]) {
   try {
-    console.log("\n🔥 === UPLOAD STARTED ===");
-    console.log(`📤 Uploading ${orders.length} stock counts`);
+    console.log("📤 Starting upload of", orders.length, "orders");
     
-    // Check authentication
     const token = await SecureStore.getItemAsync("token");
     if (!token) {
       throw new Error("Authentication token not found. Please login again.");
     }
 
-    const currentUser = await getCurrentUserId();
-    console.log("👤 Current user:", currentUser);
-
     const api = await createEnhancedAPI();
     
-    // 🎯 DEBUG: Check what we're about to send
-    console.log("\n🔍 === FIRST ORDER ANALYSIS ===");
-    if (orders.length > 0) {
-      const first = orders[0];
-      console.log("Order object keys:", Object.keys(first));
-      console.log("📦 itemcode:", first.itemcode);
-      console.log("📦 barcode:", first.barcode);
-      console.log("📦 product_name:", first.product_name);
-      console.log("📦 quantity:", first.quantity);
-      console.log("📦 userid:", first.userid);
-      
-      // Validation checks
-      if (!first.itemcode) {
-        console.error("❌ CRITICAL ERROR: itemcode is missing!");
-        throw new Error("Cannot upload: itemcode is missing");
-      } else if (first.itemcode === first.barcode) {
-        console.error("❌ CRITICAL ERROR: itemcode equals barcode!");
-        console.error("   itemcode should be product code, not full barcode");
-        throw new Error("Invalid data: itemcode should not equal barcode");
-      } else if (first.itemcode.length > 10 && /^\d+$/.test(first.itemcode)) {
-        console.warn("⚠️ WARNING: itemcode looks like barcode (long number)");
-      } else {
-        console.log("✅ itemcode looks valid (short product code)");
-      }
-      
-      if (!first.barcode) {
-        console.error("❌ WARNING: barcode is missing!");
-      }
-    }
-    console.log("🔍 === END ANALYSIS ===\n");
-    
-    // 🎯 Format for API - Map fields correctly
     const formattedOrders = orders.map((order, index) => {
-      const userId = order.userid || currentUser;
+      const isManualEntry = order.is_manual_entry === 1 || order.is_manual_entry === '1' || order.is_manual_entry === true;
       
-      // Validate itemcode
-      if (!order.itemcode) {
-        console.error(`❌ Order ${index + 1}: Missing itemcode for barcode ${order.barcode}`);
-        throw new Error(`Order ${index + 1} missing itemcode`);
-      }
-      
-      return {
-        item: order.itemcode,        // ✅ Product code (e.g., "00073")
-        barcode: order.barcode || "", // ✅ Full barcode (e.g., "00073002 : 1")
-        qty: order.quantity || 0,
-        remark: "Stock Count Entry",
-        date1: order.count_date || order.order_date || new Date().toISOString().split('T')[0],
-        text1: userId,
-        mrp: order.mrp || 0
+      const formattedOrder: any = {
+        supplier_code: order.supplier_code,
+        user_id: order.userid,
+        barcode: order.barcode,
+        quantity: order.quantity,
+        qty: order.quantity,   
+        rate: order.rate,
+        mrp: order.mrp,
+        order_date: order.order_date, // ✅ correct field
+        created_at: order.created_at,
+        original_index: index,
+        discount: 0,
+        pnfcharges: 0,
+        exceiseduty: 0,
+        salestax: 0,
+        freightcharge: 0,
+        othercharges: 0,
+        cessoned: 0,
+        cess: 0,
+        taxcode: 'NT',
+        otype: 'O',                  // ✅ backend needs this
       };
+
+      if (isManualEntry) {
+        formattedOrder.code = order.barcode;
+        formattedOrder.item = order.barcode || '';
+        formattedOrder.ioflag = -100;
+      } else {
+        formattedOrder.code = order.itemcode; // ✅ correct field
+        formattedOrder.item = order.itemcode || ''; 
+        formattedOrder.ioflag = 0;
+      }
+
+      return formattedOrder;
     });
 
-    // Final validation before upload
-    console.log("\n🔍 === VALIDATING FORMATTED ORDERS ===");
-    const invalidOrders = formattedOrders.filter((o, idx) => {
-      const hasItem = !!o.item;
-      const itemEqualsBarcode = o.item === o.barcode;
-      
-      if (!hasItem) {
-        console.error(`❌ Order ${idx + 1}: Missing 'item' field`);
-        return true;
-      }
-      
-      if (itemEqualsBarcode) {
-        console.error(`❌ Order ${idx + 1}: item equals barcode (${o.item})`);
-        return true;
-      }
-      
-      return false;
-    });
-    
+    const sortedOrders = sortChronologically(formattedOrders);
+
+    const invalidOrders = sortedOrders.filter((o) => !o.code);
     if (invalidOrders.length > 0) {
-      console.error(`\n❌ CRITICAL: ${invalidOrders.length} orders have invalid itemcode!`);
-      console.error("Invalid orders:", JSON.stringify(invalidOrders, null, 2));
-      throw new Error(`${invalidOrders.length} orders missing valid product code. Cannot upload.`);
+      throw new Error(`${invalidOrders.length} orders missing itemcode. Cannot upload.`);
     }
-    
-    console.log(`✅ All ${formattedOrders.length} orders validated successfully`);
-    console.log("=== VALIDATION COMPLETE ===\n");
 
-    console.log("\n📦 === ALL FORMATTED ORDERS ===");
-    formattedOrders.forEach((order, idx) => {
-      console.log(`\nOrder ${idx + 1}:`);
-      console.log(`  item: "${order.item}"`);
-      console.log(`  barcode: "${order.barcode}"`);
-      console.log(`  qty: ${order.qty}`);
-      console.log(`  Match: ${order.item === order.barcode ? '❌ SAME' : '✅ DIFFERENT'}`);
-    });
-    console.log("\n📦 === END ALL ORDERS ===\n");
-    
-    console.log(`👤 Uploading as user: ${formattedOrders[0]?.text1}`);
-    console.log(`📤 Sending ${formattedOrders.length} orders to /upload-orders`);
 
-    // Send to API
     const res = await api.post("/upload-orders", { 
-      orders: formattedOrders
+      orders: sortedOrders,
+      total_orders: sortedOrders.length,
+      transaction_type: 'ORDER',
+      upload_sequence: 'chronological'
     });
 
-    console.log("✅ Upload response:", res.data);
-    console.log("🔥 === UPLOAD COMPLETED ===\n");
 
     return {
       success: true,
@@ -148,12 +108,12 @@ export async function uploadPendingOrders(orders: any[]) {
       uploaded_count: formattedOrders.length,
       status: "success"
     };
-    
+
   } catch (error: any) {
     console.error("\n❌ === UPLOAD FAILED ===");
     console.error("Error:", error.response?.data || error.message);
     console.error("=== END ERROR ===\n");
-    
+
     if (error.response?.status === 401) {
       throw new Error("Authentication failed. Please login again.");
     } else if (error.response?.status === 400) {

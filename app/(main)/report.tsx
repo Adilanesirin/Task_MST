@@ -25,10 +25,10 @@ interface ReportItem {
   name: string;
   quantity: number;
   created_at: string;
-  scannedAt?: number;
-  countedQuantity?: number;
-  currentStock?: number;
   status: 'synced' | 'unsynced';
+  supplier_code?: string;
+  rate?: number;
+  mrp?: number;
 }
 
 export default function ReportScreen() {
@@ -61,9 +61,9 @@ export default function ReportScreen() {
     }
 
     const query = searchQuery.toLowerCase();
-    const filtered = items.filter(item => 
-      item.barcode.toLowerCase().includes(query) ||
-      item.name.toLowerCase().includes(query)
+    const filtered = items.filter(item =>
+      (item.barcode || '').toLowerCase().includes(query) ||
+      (item.name || '').toLowerCase().includes(query)
     );
     setFilteredItems(filtered);
   };
@@ -72,20 +72,15 @@ export default function ReportScreen() {
     try {
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const cutoffTimestamp = sevenDaysAgo.getTime();
-
-      await db.runAsync(
-        "DELETE FROM pending_items WHERE scannedAt < ?",
-        [cutoffTimestamp]
-      );
-
       const cutoffDate = sevenDaysAgo.toISOString();
+
+      // ✅ FIXED: Only clean tables that actually exist
       await db.runAsync(
-        "DELETE FROM stock_count WHERE created_at < ?",
+        "DELETE FROM orders_to_sync WHERE created_at < ? AND sync_status = 'synced'",
         [cutoffDate]
       );
 
-      console.log("[CLEANUP] Deleted records older than 7 days");
+      console.log("[CLEANUP] Deleted synced records older than 7 days");
     } catch (error) {
       console.error("[ERROR] Failed to cleanup old records:", error);
     }
@@ -95,12 +90,14 @@ export default function ReportScreen() {
     try {
       setLoading(true);
 
+      // ✅ FIXED: Count unsynced from orders_to_sync (pending), not pending_items (doesn't exist)
       const unsyncedCount = await db.getFirstAsync(
-        "SELECT COUNT(*) as count FROM pending_items"
+        "SELECT COUNT(*) as count FROM orders_to_sync WHERE sync_status = 'pending'"
       ) as { count: number } | null;
 
+      // ✅ Synced = orders already uploaded
       const syncedCount = await db.getFirstAsync(
-        "SELECT COUNT(*) as count FROM stock_count"
+        "SELECT COUNT(*) as count FROM orders_to_sync WHERE sync_status = 'synced'"
       ) as { count: number } | null;
 
       setStats({
@@ -112,34 +109,41 @@ export default function ReportScreen() {
       let rows: any[] = [];
 
       if (filter === 'unsynced') {
+        // ✅ FIXED: Query orders_to_sync with sync_status = 'pending'
         rows = await db.getAllAsync(
-          `SELECT 
-            id, 
-            barcode, 
-            name, 
-            countedQuantity as quantity,
-            scannedAt,
-            currentStock
-           FROM pending_items 
-           ORDER BY scannedAt DESC`
+          `SELECT
+            id,
+            barcode,
+            COALESCE(product_name, barcode) as name,
+            quantity,
+            rate,
+            mrp,
+           
+            created_at
+           FROM orders_to_sync
+           WHERE sync_status = 'pending'
+           ORDER BY created_at DESC`
         ) as any[];
 
         rows = rows.map(item => ({
           ...item,
           status: 'unsynced' as const,
-          created_at: new Date(item.scannedAt).toISOString()
         }));
 
       } else {
+        // ✅ FIXED: Fallback to barcode when product_name is null
         rows = await db.getAllAsync(
-          `SELECT 
+          `SELECT
             id,
             barcode,
-            product_name as name,
+            COALESCE(product_name, barcode) as name,
             quantity,
+            rate,
+            mrp,
             created_at,
             sync_status
-           FROM stock_count 
+           FROM orders_to_sync
+           WHERE sync_status = 'synced'
            ORDER BY created_at DESC`
         ) as any[];
 
@@ -186,7 +190,7 @@ export default function ReportScreen() {
   };
 
   const getStatusText = (status: string) => {
-    return status === 'synced' ? 'Synced' : 'Unsynced';
+    return status === 'synced' ? 'Synced' : 'Pending';
   };
 
   const renderItem = ({ item }: { item: ReportItem }) => (
@@ -207,15 +211,23 @@ export default function ReportScreen() {
         <View style={styles.detailRow}>
           <View style={styles.detailItem}>
             <Ionicons name="cube-outline" size={14} color="#6b7280" />
-            <Text style={styles.detailLabel}>Counted:</Text>
+            <Text style={styles.detailLabel}>Qty:</Text>
             <Text style={styles.detailValue}>{item.quantity || 0}</Text>
           </View>
 
-          {item.status === 'unsynced' && item.currentStock !== undefined && (
+          {item.rate !== undefined && item.rate !== null && (
             <View style={styles.detailItem}>
-              <Ionicons name="layers-outline" size={14} color="#6b7280" />
-              <Text style={styles.detailLabel}>Stock:</Text>
-              <Text style={styles.detailValue}>{item.currentStock}</Text>
+              <Ionicons name="pricetag-outline" size={14} color="#6b7280" />
+              <Text style={styles.detailLabel}>Rate:</Text>
+              <Text style={styles.detailValue}>₹{item.rate}</Text>
+            </View>
+          )}
+
+          {item.mrp !== undefined && item.mrp !== null && (
+            <View style={styles.detailItem}>
+              <Ionicons name="cash-outline" size={14} color="#6b7280" />
+              <Text style={styles.detailLabel}>MRP:</Text>
+              <Text style={styles.detailValue}>₹{item.mrp}</Text>
             </View>
           )}
         </View>
@@ -225,26 +237,34 @@ export default function ReportScreen() {
           <Text style={styles.detailLabel}>Date:</Text>
           <Text style={styles.detailValue}>{formatDate(item.created_at)}</Text>
         </View>
+
+        {item.supplier_code ? (
+          <View style={styles.detailRow}>
+            <Ionicons name="business-outline" size={14} color="#6b7280" />
+            <Text style={styles.detailLabel}>Supplier:</Text>
+            <Text style={styles.detailValue}>{item.supplier_code}</Text>
+          </View>
+        ) : null}
       </View>
     </View>
   );
 
   const renderEmptyState = () => (
     <View style={styles.emptyContainer}>
-      <Ionicons 
-        name={filter === 'synced' ? "checkmark-circle-outline" : "cart-outline"} 
-        size={64} 
-        color="#9ca3af" 
+      <Ionicons
+        name={filter === 'synced' ? "checkmark-circle-outline" : "time-outline"}
+        size={64}
+        color="#9ca3af"
       />
       <Text style={styles.emptyTitle}>
-        {searchQuery ? 'No Results Found' : filter === 'synced' ? 'No Synced Items' : 'No Items in Cart'}
+        {searchQuery ? 'No Results Found' : filter === 'synced' ? 'No Synced Orders' : 'No Pending Orders'}
       </Text>
       <Text style={styles.emptySubtitle}>
-        {searchQuery 
+        {searchQuery
           ? 'Try a different search term'
-          : filter === 'synced' 
-            ? 'Save stock count to see items here' 
-            : 'Start scanning items in stock taking'}
+          : filter === 'synced'
+            ? 'Upload orders to see them here'
+            : 'Scan items to add pending orders'}
       </Text>
     </View>
   );
@@ -253,24 +273,22 @@ export default function ReportScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.backButton}
           onPress={() => router.back()}
         >
           <Ionicons name="arrow-back" size={24} color="#801b90ff" />
         </TouchableOpacity>
-        
-        <Text style={styles.headerTitle}>Stock Reports</Text>
-        
-        <TouchableOpacity 
+
+        <Text style={styles.headerTitle}>Order Reports</Text>
+
+        <TouchableOpacity
           style={styles.refreshButton}
           onPress={onRefresh}
         >
           <Ionicons name="refresh" size={24} color="#801b90ff" />
         </TouchableOpacity>
       </View>
-
-      
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
@@ -285,7 +303,7 @@ export default function ReportScreen() {
           autoCorrect={false}
         />
         {searchQuery.length > 0 && (
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => setSearchQuery('')}
             style={styles.clearButton}
           >
@@ -304,10 +322,10 @@ export default function ReportScreen() {
           ]}
           onPress={() => setFilter('synced')}
         >
-          <Ionicons 
-            name="checkmark-circle" 
-            size={20} 
-            color={filter === 'synced' ? '#FFFFFF' : '#6b7280'} 
+          <Ionicons
+            name="checkmark-circle"
+            size={20}
+            color={filter === 'synced' ? '#FFFFFF' : '#6b7280'}
           />
           <Text style={[
             styles.filterText,
@@ -324,16 +342,16 @@ export default function ReportScreen() {
           ]}
           onPress={() => setFilter('unsynced')}
         >
-          <Ionicons 
-            name="cart" 
-            size={20} 
-            color={filter === 'unsynced' ? '#FFFFFF' : '#6b7280'} 
+          <Ionicons
+            name="time"
+            size={20}
+            color={filter === 'unsynced' ? '#FFFFFF' : '#6b7280'}
           />
           <Text style={[
             styles.filterText,
             filter === 'unsynced' && styles.filterTextActive
           ]}>
-            Unsynced ({stats.unsynced})
+            Pending ({stats.unsynced})
           </Text>
         </TouchableOpacity>
       </View>
@@ -366,7 +384,7 @@ export default function ReportScreen() {
       <View style={styles.infoFooter}>
         <Ionicons name="information-circle-outline" size={16} color="#9ca3af" />
         <Text style={styles.infoText}>
-          Reports are kept for 7 days
+          Synced records are kept for 7 days
         </Text>
       </View>
     </View>
@@ -403,49 +421,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: '#1f2937',
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    gap: 12,
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: '#f9fafb',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  statCardSuccess: {
-    backgroundColor: '#ecfdf5',
-    borderColor: '#10B981',
-  },
-  statCardWarning: {
-    backgroundColor: '#fffbeb',
-    borderColor: '#F59E0B',
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#1f2937',
-    marginBottom: 4,
-  },
-  statValueSuccess: {
-    color: '#10B981',
-  },
-  statValueWarning: {
-    color: '#F59E0B',
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#6b7280',
-    fontWeight: '500',
   },
   searchContainer: {
     flexDirection: 'row',

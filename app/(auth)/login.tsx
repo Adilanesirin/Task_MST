@@ -241,10 +241,68 @@ export default function Login() {
       const storedLicenseKey = await AsyncStorage.getItem("licenseKey");
       const storedClientId = await AsyncStorage.getItem("clientId");
       const storedDeviceId = await AsyncStorage.getItem("deviceId");
-      
+      const licenseType = await AsyncStorage.getItem("licenseType");
+      const demoLicenseKey = await AsyncStorage.getItem("demoLicenseKey");
+      console.log("License Type:", licenseType);
       console.log("Stored License Key:", storedLicenseKey);
+      console.log("Demo License Key:", demoLicenseKey);
+
       console.log("Stored Client ID:", storedClientId);
       console.log("Stored Device ID:", storedDeviceId);
+
+      if (licenseType === "DEMO") {
+      console.log("🎭 Demo license detected, validating...");
+      
+      const demoExpiresAt = await AsyncStorage.getItem("demoExpiresAt");
+      const demoStatus = await AsyncStorage.getItem("demoStatus");
+      const demoCompany = await AsyncStorage.getItem("demoCompany");
+      
+      if (!demoLicenseKey || !demoExpiresAt) {
+        return {
+          valid: false,
+          message: "Demo license data missing. Please reactivate.",
+          needsActivation: true
+        };
+      }
+      
+      // Check if demo expired
+      const expiryDate = new Date(demoExpiresAt);
+      const today = new Date();
+      
+      if (expiryDate < today) {
+        return {
+          valid: false,
+          message: "Demo license has expired. Please contact support.",
+          needsActivation: true
+        };
+      }
+      
+      // Check demo status
+      if (demoStatus?.toLowerCase() !== "active") {
+        return {
+          valid: false,
+          message: `Demo license is ${demoStatus}`,
+          needsActivation: true
+        };
+      }
+      
+      // Calculate days remaining
+      const daysRemaining = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      
+      // Update days remaining in storage
+      await AsyncStorage.setItem("demoDaysRemaining", String(daysRemaining));
+      
+      console.log("✅ Demo license valid, days remaining:", daysRemaining);
+      
+      return {
+        valid: true,
+        customerName: demoCompany,
+        clientId: storedClientId,
+        licenseKey: demoLicenseKey,
+        isDemoMode: true,
+        daysRemaining: daysRemaining
+      };
+    }
       
       if (!storedLicenseKey) {
         console.log("NO LICENSE KEY FOUND");
@@ -599,6 +657,8 @@ export default function Login() {
     console.log("=== LOGIN SUCCESS ===");
     await saveToken(data.token);
     await saveUserid(data.user_id);
+    await SecureStore.setItemAsync("user_role", data.role || "");
+    await SecureStore.setItemAsync("userLoggedIn", "true");
     
     Toast.show({
       type: "success",
