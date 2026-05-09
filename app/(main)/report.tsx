@@ -44,6 +44,9 @@ export default function ReportScreen() {
     unsynced: 0,
     total: 0
   });
+  const [editingItem, setEditingItem] = useState<{ id: number; qty: number } | null>(null);
+  const [editQty, setEditQty] = useState('');
+
 
   useEffect(() => {
     loadReportData();
@@ -169,6 +172,15 @@ export default function ReportScreen() {
     loadReportData();
   };
 
+  const handleSaveQty = async () => {
+  if (!editingItem) return;
+  const newQty = parseInt(editQty);
+  if (isNaN(newQty) || newQty < 1) return;
+  await db.runAsync("UPDATE orders_to_sync SET quantity = ? WHERE id = ?", [newQty, editingItem.id]);
+  setEditingItem(null);
+  loadReportData();
+};
+
   const formatDate = (dateString: string) => {
     try {
       const date = new Date(dateString);
@@ -209,11 +221,17 @@ export default function ReportScreen() {
 
       <View style={styles.itemDetails}>
         <View style={styles.detailRow}>
-          <View style={styles.detailItem}>
+          <TouchableOpacity
+            style={styles.detailItem}
+            disabled={item.status !== 'unsynced'}
+            onPress={() => { setEditingItem({ id: item.id, qty: item.quantity }); setEditQty(String(item.quantity)); }}
+          >
             <Ionicons name="cube-outline" size={14} color="#6b7280" />
             <Text style={styles.detailLabel}>Qty:</Text>
-            <Text style={styles.detailValue}>{item.quantity || 0}</Text>
-          </View>
+            <Text style={[styles.detailValue, item.status === 'unsynced' && { color: '#801b90ff', textDecorationLine: 'underline' }]}>
+              {item.quantity || 0}
+            </Text>
+          </TouchableOpacity>
 
           {item.rate !== undefined && item.rate !== null && (
             <View style={styles.detailItem}>
@@ -379,6 +397,39 @@ export default function ReportScreen() {
           }
         />
       )}
+
+            {/* Qty Edit Popup */}
+      {editingItem && (
+        <View style={styles.qtyOverlay}>
+          <View style={styles.qtyCard}>
+            <Text style={styles.qtyCardTitle}>Edit Quantity</Text>
+            <View style={styles.qtyRow}>
+              <TouchableOpacity style={styles.qtyBtn} onPress={() => setEditQty(v => String(Math.max(1, parseInt(v || '1') - 1)))}>
+                <Text style={styles.qtyBtnText}>−</Text>
+              </TouchableOpacity>
+              <TextInput
+                style={styles.qtyInput}
+                value={editQty}
+                onChangeText={v => setEditQty(v.replace(/[^0-9]/g, ''))}
+                keyboardType="numeric"
+                maxLength={5}
+              />
+              <TouchableOpacity style={styles.qtyBtn} onPress={() => setEditQty(v => String((parseInt(v || '0') || 0) + 1))}>
+                <Text style={styles.qtyBtnText}>+</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.qtyActions}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditingItem(null)}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.saveBtn} onPress={handleSaveQty}>
+                <Text style={styles.saveBtnText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
 
       {/* Info Footer */}
       <View style={styles.infoFooter}>
@@ -595,4 +646,38 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#9ca3af',
   },
+   qtyOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center', alignItems: 'center', zIndex: 999,
+  },
+  qtyCard: {
+    backgroundColor: '#fff', borderRadius: 16, padding: 24,
+    width: 260, alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15, shadowRadius: 8, elevation: 8,
+  },
+  qtyCardTitle: { fontSize: 16, fontWeight: '700', color: '#1f2937', marginBottom: 20 },
+  qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 24 },
+  qtyBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: '#f3f4f6', justifyContent: 'center', alignItems: 'center',
+    borderWidth: 1, borderColor: '#e5e7eb',
+  },
+  qtyBtnText: { fontSize: 22, fontWeight: '600', color: '#801b90ff' },
+  qtyInput: {
+    width: 80, textAlign: 'center', fontSize: 22, fontWeight: '700',
+    color: '#1f2937', borderBottomWidth: 2, borderBottomColor: '#801b90ff', paddingVertical: 4,
+  },
+  qtyActions: { flexDirection: 'row', gap: 12 },
+  cancelBtn: {
+    flex: 1, paddingVertical: 10, borderRadius: 10,
+    borderWidth: 1, borderColor: '#e5e7eb', alignItems: 'center',
+  },
+  cancelBtnText: { fontSize: 14, fontWeight: '600', color: '#6b7280' },
+  saveBtn: {
+    flex: 1, paddingVertical: 10, borderRadius: 10,
+    backgroundColor: '#801b90ff', alignItems: 'center',
+  },
+  saveBtnText: { fontSize: 14, fontWeight: '600', color: '#fff' },
 });

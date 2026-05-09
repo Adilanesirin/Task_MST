@@ -36,7 +36,7 @@
     "production": {
       "autoIncrement": true,
       "android": {
-        "gradleCommand": ":app:assembleRelease"
+        "gradleCommand": ":app:bundleRelease"
       },
       "env": {
         "EAS_BUILD_POST_INSTALL_COMMAND": "node ./eas-hooks/eas-build-post-install.js"

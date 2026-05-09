@@ -836,17 +836,19 @@ function QtyInput({ value, onChange, onEditingChange, onRefocusHidden }: { value
     <TextInput
       style={styles.qtyInput}
       value={text}
-      keyboardType="number-pad"
-      inputMode="numeric"
+      keyboardType="decimal-pad"
+      inputMode="decimal"
       onChangeText={(val) => {
-        setText(val);
-        const num = parseInt(val);
+        // Allow digits, a single leading dot, or decimal like "0.5"
+        const sanitized = val.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+        setText(sanitized);
+        const num = parseFloat(sanitized);
         if (!isNaN(num) && num >= 0) onChange(num);
       }}
       onBlur={() => {
         onEditingChange(false);
-        const num = parseInt(text);
-        const safe = isNaN(num) || num < 1 ? 1 : num;
+        const num = parseFloat(text);
+        const safe = isNaN(num) || num <= 0 ? 1 : num;
         setText(String(safe));
         onChange(safe);
         onRefocusHidden();

@@ -2,7 +2,7 @@
   "expo": {
     "name": "TaskMST",
     "slug": "TaskMST",
-    "owner": "adila2005.2",
+    "owner": "adila-2005",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon-foreground-1024.png",
@@ -82,7 +82,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "b76636cb-7391-4880-afc0-e486d7c86227"
+        "projectId": "2818a864-2184-4885-8454-73426f564076"
       }
     }
   }
