@@ -46,13 +46,15 @@ export async function uploadPendingOrders(orders: any[]) {
     }
 
     const api = await createEnhancedAPI();
+    const currentUserId = await getCurrentUserId();
     
     const formattedOrders = orders.map((order, index) => {
       const isManualEntry = order.is_manual_entry === 1 || order.is_manual_entry === '1' || order.is_manual_entry === true;
       
       const formattedOrder: any = {
         supplier_code: order.supplier_code,
-        user_id: order.userid,
+        user_id: currentUserId,
+        text1: currentUserId,
         barcode: order.barcode,
         quantity: order.quantity,
         qty: order.quantity,   

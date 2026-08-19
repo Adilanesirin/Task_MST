@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import Constants from 'expo-constants';
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import * as SQLite from "expo-sqlite";
@@ -21,6 +22,22 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
+
+const isExpoGo = Constants.appOwnership === 'expo';
+
+let Camera, useCameraDevice, useCodeScanner;
+if (!isExpoGo) {
+  const visionCamera = require('react-native-vision-camera');
+  Camera = visionCamera.Camera;
+  useCameraDevice = visionCamera.useCameraDevice;
+  useCodeScanner = visionCamera.useCodeScanner;
+}
+
+let CameraKitCamera;
+if (!isExpoGo) {
+  const cameraKit = require('react-native-camera-kit');
+  CameraKitCamera = cameraKit.Camera;
+}
 
 const db = SQLite.openDatabaseSync("magicpedia.db");
 
@@ -894,6 +911,11 @@ export default function BarcodeEntry() {
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
 
   const [showScanner, setShowScanner] = useState(false);
+
+// --- TEST SCANNER STATE ---
+const [showLibPicker, setShowLibPicker] = useState(false);
+const [activeTestLib, setActiveTestLib] = useState(null); // 'lib1' | 'lib2' | 'lib3'
+const [testResult, setTestResult] = useState(null);        // { barcode, ms, lib }
   const [duplicatePrompt, setDuplicatePrompt] = useState(true);
 
   const insets = useSafeAreaInsets();
@@ -1843,7 +1865,13 @@ if (existing) {
         <TouchableOpacity style={styles.backButton} onPress={handleBack}>
           <Ionicons name="arrow-back" size={24} color="#374151" />
         </TouchableOpacity>
-        <Text style={styles.topBarTitle}>Mobile Stock Taking</Text>
+        <Text style={[styles.topBarTitle, { flex: 1 }]}>Mobile Stock Taking</Text>
+        <TouchableOpacity
+          style={{ backgroundColor: '#7c3aed', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14 }}
+          onPress={() => setShowLibPicker(true)}
+        >
+          <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>Test</Text>
+        </TouchableOpacity>
       </View>
 
       <Modal
@@ -1992,6 +2020,102 @@ if (existing) {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* PICKER: choose which lib to test */}
+<Modal visible={showLibPicker} transparent animationType="fade" onRequestClose={() => setShowLibPicker(false)}>
+  <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+    <View style={{ backgroundColor: 'white', borderRadius: 12, padding: 20, width: '80%' }}>
+      <Text style={{ fontSize: 16, fontWeight: '700', marginBottom: 16, textAlign: 'center' }}>
+        Select Scanner to Test
+      </Text>
+           {[
+        { key: 'lib1', label: 'Lib 1 — expo-camera' },
+        { key: 'lib2', label: 'Lib 2 — vision-camera' },
+        { key: 'lib3', label: 'Lib 3 — camera-kit' },
+      ].map(({ key, label }) => (
+        <TouchableOpacity
+          key={key}
+          style={{ backgroundColor: '#3b82f6', padding: 12, borderRadius: 8, marginBottom: 10 }}
+                  onPress={async () => {
+                      if ((key === 'lib2' || key === 'lib3') && isExpoGo) {
+              setShowLibPicker(false);
+              setTimeout(() => setActiveTestLib(key), 300);
+              return;
+            }
+            if (key === 'lib2') {
+              const status = await Camera.requestCameraPermission();
+              if (status !== 'granted') {
+                Alert.alert("Camera Permission", "Camera access is required to test scanners.");
+                setShowLibPicker(false);
+                return;
+              }
+            } else if (!permission?.granted) {
+              // lib1 and lib3 both rely on the same OS camera permission
+              const { granted } = await requestPermission();
+              if (!granted) {
+                Alert.alert("Camera Permission", "Camera access is required to test scanners.");
+                setShowLibPicker(false);
+                return;
+              }
+            }
+            setShowLibPicker(false);
+            // Let the picker modal fully unmount before mounting the scanner modal,
+            // otherwise the new Modal can fail to appear (Android modal-stacking bug)
+            setTimeout(() => setActiveTestLib(key), 300);
+          }}
+                  >
+          <Text style={{ color: 'white', textAlign: 'center', fontWeight: '600' }}>{label}</Text>
+        </TouchableOpacity>
+      ))}
+      <TouchableOpacity onPress={() => setShowLibPicker(false)}>
+        <Text style={{ textAlign: 'center', color: '#6b7280', marginTop: 4 }}>Cancel</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+</Modal>
+
+  {/* LIB 1: expo-camera */}
+  {activeTestLib === 'lib1' && (
+    <TestScannerLib1
+      onResult={(res) => { setActiveTestLib(null); setTestResult(res); }}
+      onClose={() => setActiveTestLib(null)}
+    />
+  )}
+
+  {/* LIB 2: vision-camera */}
+  {activeTestLib === 'lib2' && (
+    <TestScannerLib2
+      onResult={(res) => { setActiveTestLib(null); setTestResult(res); }}
+      onClose={() => setActiveTestLib(null)}
+    />
+  )}
+
+  {/* LIB 3: camera-kit */}
+  {activeTestLib === 'lib3' && (
+    <TestScannerLib3
+      onResult={(res) => { setActiveTestLib(null); setTestResult(res); }}
+      onClose={() => setActiveTestLib(null)}
+    />
+  )}
+
+    {/* RESULT: just barcode + speed */}
+    <Modal visible={!!testResult} transparent animationType="fade" onRequestClose={() => setTestResult(null)}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}>
+        <View style={{ backgroundColor: 'white', borderRadius: 12, padding: 24, width: '85%' }}>
+          <Text style={{ fontSize: 14, color: '#6b7280', marginBottom: 4 }}>{testResult?.lib}</Text>
+          <Text style={{ fontSize: 20, fontWeight: '700', marginBottom: 8 }}>{testResult?.barcode}</Text>
+          <Text style={{ fontSize: 16, color: '#16a34a', fontWeight: '600', marginBottom: 16 }}>
+            ⏱ {testResult?.ms} ms
+          </Text>
+          <TouchableOpacity
+            style={{ backgroundColor: '#3b82f6', padding: 12, borderRadius: 8 }}
+            onPress={() => setTestResult(null)}
+          >
+            <Text style={{ color: 'white', textAlign: 'center', fontWeight: '600' }}>Close</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
 
       <Modal
         visible={showScanner}
@@ -2301,18 +2425,151 @@ onBlur={() => {
             </Text>
           </TouchableOpacity>
             <TouchableOpacity
-              style={[
-                styles.saveButton,
-                { flex: 1, marginTop: 0, backgroundColor: '#2563eb' }
-              ]}
-              onPress={handleOpenScanner}
-            >
-              <Text style={styles.saveButtonText}>Scanner</Text>
-            </TouchableOpacity>
+                style={[styles.saveButton, { flex: 1, marginTop: 0, backgroundColor: '#2563eb' }]}
+                onPress={handleOpenScanner}
+              >
+                <Text style={styles.saveButtonText}>Scanner</Text>
+              </TouchableOpacity>
           </View>
         </>
       )}
 
     </KeyboardAvoidingView>
+  );
+}
+function TestScannerLib1({ onResult, onClose }) {
+  const startRef = useRef(Date.now());
+  const doneRef = useRef(false);
+  return (
+    <Modal
+      visible
+      animationType="slide"
+      presentationStyle="fullScreen"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={{ flex: 1, backgroundColor: 'black' }}>
+        <CameraView
+          style={{ flex: 1, width: '100%', height: '100%' }}
+          facing="back"
+          onBarcodeScanned={doneRef.current ? undefined : (data) => {
+            doneRef.current = true;
+            onResult({ barcode: data.data, ms: Date.now() - startRef.current, lib: 'Lib 1 — expo-camera' });
+          }}
+          barcodeScannerSettings={{ barcodeTypes: ["qr","ean13","ean8","code128","code39","upc_a","upc_e","code93","itf14"] }}
+        />
+        <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20 }} onPress={onClose}>
+          <Ionicons name="close" size={32} color="white" />
+        </TouchableOpacity>
+      </View>
+    </Modal>
+  );
+}
+
+// LIB 2 — react-native-vision-camera
+function TestScannerLib2({ onResult, onClose }) {
+  if (isExpoGo) {
+    return (
+      <Modal visible animationType="slide" onRequestClose={onClose}>
+        <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: 'white', fontSize: 16, textAlign: 'center', paddingHorizontal: 20 }}>
+            vision-camera isn't available in Expo Go.{'\n'}Run a dev client build to test this scanner.
+          </Text>
+          <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20 }} onPress={onClose}>
+            <Ionicons name="close" size={32} color="white" />
+          </TouchableOpacity>
+        </View>
+      </Modal>
+    );
+  }
+
+  const startRef = useRef(Date.now());
+  const doneRef = useRef(false);
+  const device = useCameraDevice('back');
+
+  const codeScanner = useCodeScanner({
+    codeTypes: ['qr', 'ean-13', 'ean-8', 'code-128', 'code-39', 'upc-e', 'upc-a'],
+    onCodeScanned: (codes) => {
+      if (doneRef.current || codes.length === 0) return;
+      doneRef.current = true;
+      onResult({ barcode: codes[0].value, ms: Date.now() - startRef.current, lib: 'Lib 2 — vision-camera' });
+    },
+  });
+
+  return (
+    <Modal
+      visible
+      animationType="slide"
+      presentationStyle="fullScreen"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={{ flex: 1, backgroundColor: 'black' }}>
+        {device ? (
+          <Camera
+            style={{ flex: 1, width: '100%', height: '100%' }}
+            device={device}
+            isActive
+            codeScanner={codeScanner}
+          />
+        ) : (
+          <Text style={{ color: 'white', textAlign: 'center', marginTop: 100 }}>
+            No camera device found
+          </Text>
+        )}
+        <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20 }} onPress={onClose}>
+          <Ionicons name="close" size={32} color="white" />
+        </TouchableOpacity>
+      </View>
+    </Modal>
+  );
+}
+
+// LIB 3 — react-native-camera-kit
+function TestScannerLib3({ onResult, onClose }) {
+  if (isExpoGo) {
+    return (
+      <Modal visible animationType="slide" onRequestClose={onClose}>
+        <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: 'white', fontSize: 16, textAlign: 'center', paddingHorizontal: 20 }}>
+            camera-kit isn't available in Expo Go.{'\n'}Run a dev client build to test this scanner.
+          </Text>
+          <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20 }} onPress={onClose}>
+            <Ionicons name="close" size={32} color="white" />
+          </TouchableOpacity>
+        </View>
+      </Modal>
+    );
+  }
+
+  const startRef = useRef(Date.now());
+  const doneRef = useRef(false);
+
+  return (
+    <Modal
+      visible
+      animationType="slide"
+      presentationStyle="fullScreen"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={{ flex: 1, backgroundColor: 'black' }}>
+        <CameraKitCamera
+          style={{ flex: 1, width: '100%', height: '100%' }}
+          cameraType="back"
+          scanBarcode
+          onReadCode={(event) => {
+            if (doneRef.current) return;
+            const value = event?.nativeEvent?.codeStringValue;
+            if (!value) return;
+            doneRef.current = true;
+            onResult({ barcode: value, ms: Date.now() - startRef.current, lib: 'Lib 3 — camera-kit' });
+          }}
+        />
+        <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20 }} onPress={onClose}>
+          <Ionicons name="close" size={32} color="white" />
+        </TouchableOpacity>
+      </View>
+    </Modal>
   );
 }

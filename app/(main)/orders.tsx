@@ -24,7 +24,7 @@ const orderRoutes = [
   {
     name: "Entry",
     icon: "create",
-    path: "/(main)/barcode-entry",
+    path: "/barcode-entry",
     subtitle: "Add new products to inventory",
     description: "Create and manage product entries",
     gradient: ["#9C27B0", "#7E57C2", "#673AB7"],
@@ -33,7 +33,7 @@ const orderRoutes = [
   {
     name: "Upload",
     icon: "cloud-done",
-    path: "/(main)/upload",
+    path: "/upload",
     subtitle: "Synchronize with cloud server",
     description: "Sync all pending data",
     gradient: ["#7E57C2", "#673AB7", "#5E35B1"],
@@ -43,7 +43,7 @@ const orderRoutes = [
   {
     name: "Report",
     icon: "stats-chart",
-    path: "/(main)/report",
+    path: "/report",
     subtitle: "View synced and unsynced items",
     description: "Track stock history",
     gradient: ["#673AB7", "#5E35B1", "#512DA8"],

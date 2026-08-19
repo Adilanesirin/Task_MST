@@ -195,10 +195,15 @@ export default function License() {
     try {
       console.log("🎭 Validating demo license:", demoKey);
 
-      const response = await fetch(CHECK_LICENSE_API, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-      });
+     const response = await fetch(`${CHECK_LICENSE_API}?_=${Date.now()}`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+      },
+      cache: "no-store",
+    });
       const data = await response.json();
 
       if (!response.ok || !data.success)
@@ -601,8 +606,10 @@ export default function License() {
       }
 
       const customer = checkData.customers.find(
-        (c: any) => c.license_key === licenseKey.trim()
-      );
+          (c: any) =>
+            c.license_key?.trim().toUpperCase() === licenseKey.trim().toUpperCase()
+        );
+
 
       if (!customer) {
         Toast.show({

@@ -16,6 +16,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.taskmst.app",
       "infoPlist": {
+        "NSCameraUsageDescription": "Allow TaskMST to access your camera to scan barcodes",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
           "NSAllowsLocalNetworking": true,
@@ -60,7 +61,7 @@
       "output": "static",
       "favicon": "./assets/images/iconbg.png"
     },
-    "plugins": [
+        "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
@@ -74,7 +75,21 @@
       "expo-secure-store",
       "expo-sqlite",
       "./plugin/withNetworkConfig",
-      "expo-audio"
+      "expo-audio",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan barcodes"
+        }
+      ],
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "Allow $(PRODUCT_NAME) to access your camera to scan barcodes",
+          "enableCodeScanner": true
+        }
+      ]
+      
     ],
     "experiments": {
       "typedRoutes": true
