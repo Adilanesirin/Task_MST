@@ -61,7 +61,7 @@
       "output": "static",
       "favicon": "./assets/images/iconbg.png"
     },
-        "plugins": [
+    "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
@@ -82,14 +82,21 @@
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan barcodes"
         }
       ],
-      [
+            [
         "react-native-vision-camera",
         {
           "cameraPermissionText": "Allow $(PRODUCT_NAME) to access your camera to scan barcodes",
           "enableCodeScanner": true
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "extraProguardRules": "-keep class expo.modules.** { *; }\n-keepclassmembers class expo.modules.** { *; }\n-dontwarn expo.modules.**\n-keep class kotlin.reflect.** { *; }\n-keep class kotlin.Metadata { *; }\n-dontwarn kotlin.reflect.**"
+          }
+        }
       ]
-      
     ],
     "experiments": {
       "typedRoutes": true
