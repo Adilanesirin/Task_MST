@@ -75,6 +75,8 @@
       "expo-secure-store",
       "expo-sqlite",
       "./plugin/withNetworkConfig",
+      "./plugins/withHoneywellCompileSdk",
+
       "expo-audio",
       [
         "expo-camera",
