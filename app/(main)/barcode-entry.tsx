@@ -25,18 +25,59 @@ import Toast from "react-native-toast-message";
 
 const isExpoGo = Constants.appOwnership === 'expo';
 
-let Camera, useCameraDevice, useCodeScanner;
-if (!isExpoGo) {
-  const visionCamera = require('react-native-vision-camera');
-  Camera = visionCamera.Camera;
-  useCameraDevice = visionCamera.useCameraDevice;
-  useCodeScanner = visionCamera.useCodeScanner;
+function getVisionCamera() {
+  try {
+    return require('react-native-vision-camera');
+  } catch (e) {
+    console.warn('vision-camera failed to load:', e);
+    return null;
+  }
 }
 
-let CameraKitCamera;
-if (!isExpoGo) {
-  const cameraKit = require('react-native-camera-kit');
-  CameraKitCamera = cameraKit.Camera;
+function getCameraKitCamera() {
+  try {
+    return require('react-native-camera-kit').Camera;
+  } catch (e) {
+    console.warn('camera-kit failed to load:', e);
+    return null;
+  }
+}
+
+let honeywellLoadError = null;
+function getHoneywellScanner() {
+  try {
+    honeywellLoadError = null;
+    const mod = require('react-native-honeywell-scanner');
+    const HoneywellScanner = mod?.default ?? mod;
+    if (!HoneywellScanner || typeof HoneywellScanner.startReader !== 'function') {
+      honeywellLoadError = 'Module loaded but has no startReader() — check the export shape or native linking.';
+      console.warn(honeywellLoadError, mod);
+      return null;
+    }
+    return HoneywellScanner;
+  } catch (e) {
+    honeywellLoadError = e?.message || String(e);
+    console.warn('honeywell-scanner failed to load:', e);
+    return null;
+  }
+}
+
+function getDataWedgeIntents() {
+  try {
+    return require('react-native-datawedge-intents').default;
+  } catch (e) {
+    console.warn('datawedge-intents failed to load:', e);
+    return null;
+  }
+}
+
+function getKeyEvent() {
+  try {
+    return require('react-native-keyevent').default;
+  } catch (e) {
+    console.warn('react-native-keyevent failed to load:', e);
+    return null;
+  }
 }
 
 const db = SQLite.openDatabaseSync("magicpedia.db");
@@ -914,8 +955,10 @@ export default function BarcodeEntry() {
 
 // --- TEST SCANNER STATE ---
 const [showLibPicker, setShowLibPicker] = useState(false);
-const [activeTestLib, setActiveTestLib] = useState(null); // 'lib1' | 'lib2' | 'lib3'
-const [testResult, setTestResult] = useState(null);        // { barcode, ms, lib }
+const [testTab, setTestTab] = useState('camera');         
+const [activeTestLib, setActiveTestLib] = useState(null);       
+const [activeTestDeviceLib, setActiveTestDeviceLib] = useState(null); 
+const [testResult, setTestResult] = useState(null);         
   const [duplicatePrompt, setDuplicatePrompt] = useState(true);
 
   const insets = useSafeAreaInsets();
@@ -2021,14 +2064,34 @@ if (existing) {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* PICKER: choose which lib to test */}
 <Modal visible={showLibPicker} transparent animationType="fade" onRequestClose={() => setShowLibPicker(false)}>
   <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
     <View style={{ backgroundColor: 'white', borderRadius: 12, padding: 20, width: '80%' }}>
       <Text style={{ fontSize: 16, fontWeight: '700', marginBottom: 16, textAlign: 'center' }}>
         Select Scanner to Test
       </Text>
-           {[
+
+      {/* CAMERA / DEVICE TOGGLE */}
+      <View style={{ flexDirection: 'row', marginBottom: 16, borderRadius: 8, overflow: 'hidden', borderWidth: 1, borderColor: '#d1d5db' }}>
+        <TouchableOpacity
+          style={{ flex: 1, paddingVertical: 10, backgroundColor: testTab === 'camera' ? '#3b82f6' : '#fff' }}
+          onPress={() => setTestTab('camera')}
+        >
+          <Text style={{ textAlign: 'center', fontWeight: '600', color: testTab === 'camera' ? '#fff' : '#374151' }}>
+            Camera
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={{ flex: 1, paddingVertical: 10, backgroundColor: testTab === 'device' ? '#3b82f6' : '#fff' }}
+          onPress={() => setTestTab('device')}
+        >
+          <Text style={{ textAlign: 'center', fontWeight: '600', color: testTab === 'device' ? '#fff' : '#374151' }}>
+            Device
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {testTab === 'camera' && [
         { key: 'lib1', label: 'Lib 1 — expo-camera' },
         { key: 'lib2', label: 'Lib 2 — vision-camera' },
         { key: 'lib3', label: 'Lib 3 — camera-kit' },
@@ -2036,21 +2099,26 @@ if (existing) {
         <TouchableOpacity
           key={key}
           style={{ backgroundColor: '#3b82f6', padding: 12, borderRadius: 8, marginBottom: 10 }}
-                  onPress={async () => {
-                      if ((key === 'lib2' || key === 'lib3') && isExpoGo) {
+          onPress={async () => {
+            if ((key === 'lib2' || key === 'lib3') && isExpoGo) {
               setShowLibPicker(false);
               setTimeout(() => setActiveTestLib(key), 300);
               return;
             }
             if (key === 'lib2') {
-              const status = await Camera.requestCameraPermission();
+              const visionCameraModule = getVisionCamera();
+              if (!visionCameraModule) {
+                Alert.alert("Scanner Unavailable", "vision-camera failed to load on this build.");
+                setShowLibPicker(false);
+                return;
+              }
+              const status = await visionCameraModule.Camera.requestCameraPermission();
               if (status !== 'granted') {
                 Alert.alert("Camera Permission", "Camera access is required to test scanners.");
                 setShowLibPicker(false);
                 return;
               }
             } else if (!permission?.granted) {
-              // lib1 and lib3 both rely on the same OS camera permission
               const { granted } = await requestPermission();
               if (!granted) {
                 Alert.alert("Camera Permission", "Camera access is required to test scanners.");
@@ -2059,14 +2127,31 @@ if (existing) {
               }
             }
             setShowLibPicker(false);
-            // Let the picker modal fully unmount before mounting the scanner modal,
-            // otherwise the new Modal can fail to appear (Android modal-stacking bug)
             setTimeout(() => setActiveTestLib(key), 300);
           }}
-                  >
+        >
           <Text style={{ color: 'white', textAlign: 'center', fontWeight: '600' }}>{label}</Text>
         </TouchableOpacity>
       ))}
+
+      {testTab === 'device' && [
+        { key: 'devlib1', label: 'Device Lib 1 — Honeywell' },
+        { key: 'devlib2', label: 'Device Lib 2 — Zebra DataWedge' },
+        { key: 'devlib3', label: 'Device Lib 3 — react-native-keyevent' },
+      ].map(({ key, label }) => (
+        <TouchableOpacity
+          key={key}
+          style={{ backgroundColor: '#059669', padding: 12, borderRadius: 8, marginBottom: 10 }}
+          onPress={() => {
+            setShowLibPicker(false);
+            // Same modal-stacking-safe delay as the camera libs
+            setTimeout(() => setActiveTestDeviceLib(key), 300);
+          }}
+        >
+          <Text style={{ color: 'white', textAlign: 'center', fontWeight: '600' }}>{label}</Text>
+        </TouchableOpacity>
+      ))}
+
       <TouchableOpacity onPress={() => setShowLibPicker(false)}>
         <Text style={{ textAlign: 'center', color: '#6b7280', marginTop: 4 }}>Cancel</Text>
       </TouchableOpacity>
@@ -2095,6 +2180,30 @@ if (existing) {
     <TestScannerLib3
       onResult={(res) => { setActiveTestLib(null); setTestResult(res); }}
       onClose={() => setActiveTestLib(null)}
+    />
+  )}
+
+  {/* DEVICE LIB 1: Honeywell */}
+  {activeTestDeviceLib === 'devlib1' && (
+    <TestDeviceLib1
+      onResult={(res) => { setActiveTestDeviceLib(null); setTestResult(res); }}
+      onClose={() => setActiveTestDeviceLib(null)}
+    />
+  )}
+
+  {/* DEVICE LIB 2: Zebra DataWedge */}
+  {activeTestDeviceLib === 'devlib2' && (
+    <TestDeviceLib2
+      onResult={(res) => { setActiveTestDeviceLib(null); setTestResult(res); }}
+      onClose={() => setActiveTestDeviceLib(null)}
+    />
+  )}
+
+  {/* DEVICE LIB 3: react-native-keyevent (generic HID wedge scanner) */}
+  {activeTestDeviceLib === 'devlib3' && (
+    <TestDeviceLib3
+      onResult={(res) => { setActiveTestDeviceLib(null); setTestResult(res); }}
+      onClose={() => setActiveTestDeviceLib(null)}
     />
   )}
 
@@ -2468,6 +2577,9 @@ function TestScannerLib1({ onResult, onClose }) {
 
 // LIB 2 — react-native-vision-camera
 function TestScannerLib2({ onResult, onClose }) {
+  const startRef = useRef(Date.now());
+  const doneRef = useRef(false);
+
   if (isExpoGo) {
     return (
       <Modal visible animationType="slide" onRequestClose={onClose}>
@@ -2483,8 +2595,24 @@ function TestScannerLib2({ onResult, onClose }) {
     );
   }
 
-  const startRef = useRef(Date.now());
-  const doneRef = useRef(false);
+  const visionCameraModule = getVisionCamera();
+
+  if (!visionCameraModule) {
+    return (
+      <Modal visible animationType="slide" onRequestClose={onClose}>
+        <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: 'white', fontSize: 16, textAlign: 'center', paddingHorizontal: 20 }}>
+            vision-camera failed to load on this build.
+          </Text>
+          <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20 }} onPress={onClose}>
+            <Ionicons name="close" size={32} color="white" />
+          </TouchableOpacity>
+        </View>
+      </Modal>
+    );
+  }
+
+  const { Camera, useCameraDevice, useCodeScanner } = visionCameraModule;
   const device = useCameraDevice('back');
 
   const codeScanner = useCodeScanner({
@@ -2524,8 +2652,6 @@ function TestScannerLib2({ onResult, onClose }) {
     </Modal>
   );
 }
-
-// LIB 3 — react-native-camera-kit
 function TestScannerLib3({ onResult, onClose }) {
   if (isExpoGo) {
     return (
@@ -2544,6 +2670,22 @@ function TestScannerLib3({ onResult, onClose }) {
 
   const startRef = useRef(Date.now());
   const doneRef = useRef(false);
+  const CameraKitCamera = getCameraKitCamera();
+
+  if (!CameraKitCamera) {
+    return (
+      <Modal visible animationType="slide" onRequestClose={onClose}>
+        <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: 'white', fontSize: 16, textAlign: 'center', paddingHorizontal: 20 }}>
+            camera-kit failed to load on this build.
+          </Text>
+          <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20 }} onPress={onClose}>
+            <Ionicons name="close" size={32} color="white" />
+          </TouchableOpacity>
+        </View>
+      </Modal>
+    );
+  }
 
   return (
     <Modal
@@ -2566,6 +2708,183 @@ function TestScannerLib3({ onResult, onClose }) {
             onResult({ barcode: value, ms: Date.now() - startRef.current, lib: 'Lib 3 — camera-kit' });
           }}
         />
+        <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20 }} onPress={onClose}>
+          <Ionicons name="close" size={32} color="white" />
+        </TouchableOpacity>
+      </View>
+    </Modal>
+  );
+}
+
+// DEVICE LIB 1 — react-native-honeywell-scanner
+function TestDeviceLib1({ onResult, onClose }) {
+  const startRef = useRef(Date.now());
+  const doneRef = useRef(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (isExpoGo) return;
+    const HoneywellScanner = getHoneywellScanner();
+    if (!HoneywellScanner) return;
+
+    HoneywellScanner.startReader();
+    setReady(true);
+
+    const sub = HoneywellScanner.onBarcodeReadEvent((event) => {
+      if (doneRef.current) return;
+      doneRef.current = true;
+      onResult({ barcode: event.data, ms: Date.now() - startRef.current, lib: 'Device Lib 1 — Honeywell' });
+    });
+
+    return () => {
+      sub?.remove?.();
+      HoneywellScanner.stopReader?.();
+    };
+  }, []);
+
+   const honeywellModule = getHoneywellScanner();
+  if (isExpoGo || !honeywellModule) {
+    const reason = isExpoGo
+      ? "Honeywell scanner isn't available in Expo Go.\nRun a dev client build on Honeywell hardware to test this."
+      : `Module failed to load on this build.\n${honeywellLoadError || 'Unknown error'}`;
+    return (
+      <Modal visible animationType="slide" onRequestClose={onClose}>
+        <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: 'white', fontSize: 16, textAlign: 'center', paddingHorizontal: 20 }}>
+            {reason}
+          </Text>
+          <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20 }} onPress={onClose}>
+            <Ionicons name="close" size={32} color="white" />
+          </TouchableOpacity>
+        </View>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="fullScreen" statusBarTranslucent onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' }}>
+        <Ionicons name="scan-outline" size={64} color="white" />
+        <Text style={{ color: 'white', fontSize: 16, marginTop: 16 }}>
+          {ready ? 'Waiting for hardware trigger scan…' : 'Starting Honeywell reader…'}
+        </Text>
+        <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20 }} onPress={onClose}>
+          <Ionicons name="close" size={32} color="white" />
+        </TouchableOpacity>
+      </View>
+    </Modal>
+  );
+}
+
+// DEVICE LIB 2 — react-native-datawedge-intents (Zebra)
+function TestDeviceLib2({ onResult, onClose }) {
+  const startRef = useRef(Date.now());
+  const doneRef = useRef(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (isExpoGo) return;
+    const DataWedgeIntents = getDataWedgeIntents();
+    if (!DataWedgeIntents) return;
+
+    DataWedgeIntents.registerBroadcastReceiver({
+      filterActions: ['com.symbol.datawedge.api.RESULT_ACTION'],
+      filterCategories: ['android.intent.category.DEFAULT'],
+    });
+    setReady(true);
+
+    const sub = DataWedgeIntents.addListener('datawedge', (intent) => {
+      if (doneRef.current || !intent?.data) return;
+      doneRef.current = true;
+      onResult({ barcode: intent.data, ms: Date.now() - startRef.current, lib: 'Device Lib 2 — Zebra DataWedge' });
+    });
+
+    return () => {
+      sub?.remove?.();
+      DataWedgeIntents.unregisterBroadcastReceiver?.();
+    };
+  }, []);
+
+  if (isExpoGo || !getDataWedgeIntents()) {
+    return (
+      <Modal visible animationType="slide" onRequestClose={onClose}>
+        <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: 'white', fontSize: 16, textAlign: 'center', paddingHorizontal: 20 }}>
+            DataWedge isn't available in Expo Go.{'\n'}Run a dev client build on a Zebra device to test this.
+          </Text>
+          <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20 }} onPress={onClose}>
+            <Ionicons name="close" size={32} color="white" />
+          </TouchableOpacity>
+        </View>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="fullScreen" statusBarTranslucent onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' }}>
+        <Ionicons name="scan-outline" size={64} color="white" />
+        <Text style={{ color: 'white', fontSize: 16, marginTop: 16 }}>
+          {ready ? 'Waiting for DataWedge scan…' : 'Registering DataWedge receiver…'}
+        </Text>
+        <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20 }} onPress={onClose}>
+          <Ionicons name="close" size={32} color="white" />
+        </TouchableOpacity>
+      </View>
+    </Modal>
+  );
+}
+
+// DEVICE LIB 3 — react-native-keyevent (generic Bluetooth/USB HID keyboard-wedge scanner)
+function TestDeviceLib3({ onResult, onClose }) {
+  const startRef = useRef(Date.now());
+  const doneRef = useRef(false);
+  const bufferRef = useRef('');
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (isExpoGo) return;
+    const KeyEvent = getKeyEvent();
+    if (!KeyEvent) return;
+
+    setReady(true);
+    KeyEvent.onKeyDownListener((keyEvent) => {
+      if (doneRef.current) return;
+      const char = keyEvent?.pressedKey;
+      if (keyEvent?.keyCode === 66 /* Enter = scan terminator */) {
+        if (!bufferRef.current) return;
+        doneRef.current = true;
+        onResult({ barcode: bufferRef.current, ms: Date.now() - startRef.current, lib: 'Device Lib 3 — react-native-keyevent' });
+      } else if (char) {
+        bufferRef.current += char;
+      }
+    });
+
+    return () => KeyEvent.removeKeyDownListener?.();
+  }, []);
+
+  if (isExpoGo || !getKeyEvent()) {
+    return (
+      <Modal visible animationType="slide" onRequestClose={onClose}>
+        <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: 'white', fontSize: 16, textAlign: 'center', paddingHorizontal: 20 }}>
+            react-native-keyevent isn't available in Expo Go.{'\n'}Run a dev client build with a Bluetooth/USB HID scanner to test this.
+          </Text>
+          <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20 }} onPress={onClose}>
+            <Ionicons name="close" size={32} color="white" />
+          </TouchableOpacity>
+        </View>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="fullScreen" statusBarTranslucent onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' }}>
+        <Ionicons name="scan-outline" size={64} color="white" />
+        <Text style={{ color: 'white', fontSize: 16, marginTop: 16 }}>
+          {ready ? 'Waiting for HID scanner input…' : 'Starting key listener…'}
+        </Text>
         <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20 }} onPress={onClose}>
           <Ionicons name="close" size={32} color="white" />
         </TouchableOpacity>
