@@ -15,8 +15,16 @@ subprojects { subproject ->
     }
 }
 `;
-      if (!config.modResults.contents.includes('compileSdkVersion 36')) {
-        config.modResults.contents += injection;
+          if (!config.modResults.contents.includes('compileSdkVersion 36')) {
+        const anchor = 'apply plugin: "expo-root-project"';
+        if (config.modResults.contents.includes(anchor)) {
+          config.modResults.contents = config.modResults.contents.replace(
+            anchor,
+            `${injection}\n${anchor}`
+          );
+        } else {
+          config.modResults.contents += injection;
+        }
       }
     }
     return config;
